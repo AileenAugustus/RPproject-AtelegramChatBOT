@@ -6,6 +6,7 @@ import json
 import asyncio
 import random
 from datetime import datetime
+import pytz
 from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from config import API_KEY, TELEGRAM_BOT_TOKEN, YOUR_SITE_URL, YOUR_APP_NAME
@@ -15,13 +16,15 @@ from personalities import personalities
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# Store the current personality chosen by each user
+# Store the current personality choice for each user
 user_personalities = {}
-# Store the chat history of each user
+# Store chat histories for each user
 chat_histories = {}
-# Store the last activity time of each user
+# Store the last activity time for each user
 last_activity = {}
-# Store the status of scheduling tasks for each user
+# Store the timezone for each user
+user_timezones = {}
+# Store the scheduler task status for each user
 scheduler_tasks = {}
 
 # Get the latest personality choice
@@ -33,20 +36,21 @@ async def start(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     await update.message.reply_text(
         'Welcome to the chatbot!\n'
-        'You can choose a personality with the following commands:\n'
+        'You can choose a personality using the following commands:\n'
         '/use DefaultPersonality - Switch to ChatGPT4o\n'
-        '/use <Personality Name> - Switch to the specified personality\n'
+        '/use <personality name> - Switch to the specified personality\n'
         '/clear - Clear the current chat history\n'
-        'Send a message to start chatting!'
+        'Send a message to start chatting!\n'
+        'You can also set your timezone, e.g., /time Asia/Shanghai'
     )
     last_activity[chat_id] = datetime.now()
 
-    # Check if a scheduling task is already running, if so, cancel it
+    # Check if there's an existing scheduler task running, if so, cancel it
     if chat_id in scheduler_tasks:
         scheduler_tasks[chat_id].cancel()
         logger.info(f"Canceled existing greeting scheduler for chat_id: {chat_id}")
 
-    # Start a new scheduling task
+    # Start a new scheduler task
     logger.info(f"Starting new greeting scheduler for chat_id: {chat_id}")
     task = context.application.create_task(greeting_scheduler(chat_id, context))
     scheduler_tasks[chat_id] = task
@@ -57,7 +61,7 @@ async def use_personality(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     args = context.args
     if len(args) != 1:
-        await update.message.reply_text('Usage: /use <Personality Name>')
+        await update.message.reply_text('Usage: /use <personality name>')
         return
 
     personality_choice = args[0]
@@ -69,11 +73,30 @@ async def use_personality(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text('Specified personality not found.')
         logger.warning(f"User {chat_id} tried to switch to unknown personality {personality_choice}")
 
+# Handler function for the /time command
+async def set_time(update: Update, context: CallbackContext) -> None:
+    chat_id = update.message.chat_id
+    args = context.args
+    if len(args) != 1:
+        await update.message.reply_text('Usage: /time <timezone name>')
+        return
+
+    timezone = args[0]
+    try:
+        # Attempt to set the timezone in the user_timezones dictionary
+        pytz.timezone(timezone)
+        user_timezones[chat_id] = timezone
+        await update.message.reply_text(f'Timezone set to {timezone}')
+        logger.info(f"User {chat_id} set timezone to {timezone}")
+    except pytz.UnknownTimeZoneError:
+        await update.message.reply_text('Invalid timezone name. Please use a valid timezone name, e.g., Asia/Shanghai')
+        logger.warning(f"User {chat_id} tried to set unknown timezone {timezone}")
+
 # Handler function for the /clear command
 async def clear_history(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     chat_histories[chat_id] = []
-    await update.message.reply_text('Cleared the current chat history.')
+    await update.message.reply_text('Cleared current chat history.')
     logger.info(f"Cleared chat history for chat_id: {chat_id}")
 
 # Function to handle messages
@@ -83,35 +106,35 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
     logger.info(f"Received message from {chat_id}: {message}")
 
-    # Initialize records in the chat history dictionary
+    # Initialize chat history if not already present
     if chat_id not in chat_histories:
         chat_histories[chat_id] = []
 
-    # Add the new message to the chat history
+    # Add new message to chat history
     chat_histories[chat_id].append(f"User: {message}")
 
-    # Keep the last 30 records
+    # Keep only the last 30 messages
     if len(chat_histories[chat_id]) > 30:
         chat_histories[chat_id].pop(0)
 
-    # Update the last activity time
+    # Update last activity time
     last_activity[chat_id] = datetime.now()
 
     # Get the current personality choice
     current_personality = get_latest_personality(chat_id)
     
-    # If the current personality is not defined, use the default personality
+    # Use default personality if the current one is undefined
     if current_personality not in personalities:
         current_personality = "DefaultPersonality"
 
     try:
         personality = personalities[current_personality]
     except KeyError:
-        await update.message.reply_text(f"Personality not found: {current_personality}")
+        await update.message.reply_text(f"Cannot find personality: {current_personality}")
         logger.error(f"Personality {current_personality} not found for chat_id: {chat_id}")
         return
 
-    # Send the personality prompt and the recent chat history
+    # Send the personality prompt and recent chat history
     messages = [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]]
 
     payload = {
@@ -148,10 +171,10 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         reply = f"An error occurred: {err}"
 
     # Remove unnecessary prefixes (e.g., names)
-    if ":" in reply:
-        reply = reply.split(":", 1)[-1].strip()
+    if "：" in reply:
+        reply = reply.split("：", 1)[-1].strip()
 
-    # Add the API reply to the chat history
+    # Add the API response to the chat history
     chat_histories[chat_id].append(f"Bot: {reply}")
 
     logger.info(f"Replying to {chat_id}: {reply}")
@@ -162,30 +185,38 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         logger.error(f"Failed to send message: {err}")
 
 async def greeting_scheduler(chat_id, context: CallbackContext):
-    logger.info(f"greeting_scheduler started for chat_id: {chat_id}")  # Added logging
+    logger.info(f"greeting_scheduler started for chat_id: {chat_id}")
     while True:
-        await asyncio.sleep(3600)  # Interval for checking new messages
+        await asyncio.sleep(3600)  # Check for new messages every 60 seconds
         logger.info(f"Checking last activity for chat_id: {chat_id}")
         if chat_id in last_activity:
             delta = datetime.now() - last_activity[chat_id]
             logger.info(f"Time since last activity: {delta.total_seconds()} seconds")
-            if delta.total_seconds() >= 3600:  # Last activity time exceeds threshold
+            if delta.total_seconds() >= 3600:  # Last activity was over 1 minute ago
                 logger.info(f"No activity detected for chat_id {chat_id} for 60 seconds.")
-                wait_time = random.randint(3600, 14400)  # Random wait time
+                wait_time = random.randint(3600, 14400)  # Wait randomly between 1 to 2 minutes
                 logger.info(f"Waiting for {wait_time} seconds before sending greeting")
                 await asyncio.sleep(wait_time)
-                local_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                greeting_message = f"It is now {local_time}, please generate and reply with a greeting or share your daily routine."
 
-                # Generate greeting examples
+                # Get the user's timezone
+                timezone = user_timezones.get(chat_id, 'UTC')
+                local_time = datetime.now(pytz.timezone(timezone)).strftime("%Y-%m-%d %H:%M:%S")
+                greeting_message = f"It is now {local_time}, please generate and reply with a greeting or share your daily life."
+
+                # Generate the greeting
                 examples = [
-                    "For lunchtime, you can send like this: 'Hey friend, are you there? I would like to invite you to lunch.'",
-                    "In the morning, you can send send like this: 'Good morning! Hope you have a great day!'",
-                    "After 10 PM, you can send send like this: 'Good night, friend, have a good dream!'",
-                    "After 0 AM, you can send send like this: 'Are you still awake? Friend?'",
-                    "To share your daily routine, you can send send like this: 'Guess what I found today?'"
+                    "0:00am-3:59am: 'Hey friend, are you awake?'",
+                    "4:00am-5:59am: 'I got up very early today, just wanted to say good morning!'",
+                    "6:00am-8:59am: 'Good morning! Hope you have a great day!'",
+                    "9:00am-10:59am: 'What are you up to, friend? Morning hours are always precious.'",
+                    "11:00am-12:59pm: 'Hey friend, are you there? I want to invite you to lunch.'",
+                    "1:00pm-4:59pm: 'Work never seems to end, I really want to see your smile, it will energize me!'",
+                    "5:00pm-7:59pm: 'Friend, would you like to have dinner with me tonight?'",
+                    "8:00pm-9:59pm: 'The stars in the night sky here are beautiful, how about there?'",
+                    "10:00pm-11:59pm: 'Good night, friend, sweet dreams!'",
+                    "Sharing daily life: 'Friend, guess what I found?'"
                 ]
-                greeting_message += "\nRespond with a message in the style of the following examples:\n" + "\n".join(examples)
+                greeting_message += "\nFollow the style of the examples below for your reply, don't repeat the content of the examples, express it in your own way:\n" + "\n".join(examples)
 
                 logger.info(f"Sending greeting message to chat_id {chat_id}: {greeting_message}")
 
@@ -196,7 +227,7 @@ async def greeting_scheduler(chat_id, context: CallbackContext):
                 try:
                     personality = personalities[current_personality]
                 except KeyError:
-                    await context.bot.send_message(chat_id=chat_id, text=f"Personality not found: {current_personality}")
+                    await context.bot.send_message(chat_id=chat_id, text=f"Cannot find personality: {current_personality}")
                     continue
 
                 messages = [{"role": "system", "content": personality['prompt']}, {"role": "user", "content": greeting_message}]
@@ -220,13 +251,13 @@ async def greeting_scheduler(chat_id, context: CallbackContext):
 
                     response_json = response.json()
                     reply = response_json.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
-                    if ":" in reply:
-                        reply = reply.split(":", 1)[-1].strip()
+                    if "：" in reply:
+                        reply = reply.split("：", 1)[-1].strip()
                     await context.bot.send_message(chat_id=chat_id, text=reply)
 
                     # Add the proactive greeting to the chat history
                     chat_histories[chat_id].append(f"Bot: {reply}")
-                    last_activity[chat_id] = datetime.now()  # Update the last activity time
+                    last_activity[chat_id] = datetime.now()  # Update last activity time
                     logger.info(f"Greeting sent to chat_id {chat_id}: {reply}")
                 except requests.exceptions.HTTPError as http_err:
                     logger.error(f"HTTP error occurred: {http_err}")
@@ -245,13 +276,15 @@ def main() -> None:
     commands = [
         BotCommand("start", "Start the bot"),
         BotCommand("use", "Choose a personality"),
-        BotCommand("clear", "Clear the current chat history")
+        BotCommand("clear", "Clear the current chat history"),
+        BotCommand("time", "Set the timezone")
     ]
     application.bot.set_my_commands(commands)
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("use", use_personality))
     application.add_handler(CommandHandler("clear", clear_history))
+    application.add_handler(CommandHandler("time", set_time))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     application.run_polling()
