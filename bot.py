@@ -201,20 +201,20 @@ async def greeting_scheduler(chat_id, context: CallbackContext):
                 # Get the user's timezone
                 timezone = user_timezones.get(chat_id, 'UTC')
                 local_time = datetime.now(pytz.timezone(timezone)).strftime("%Y-%m-%d %H:%M:%S")
-                greeting_message = f"It is now {local_time}, please generate and reply with a greeting or share your daily life."
+                greeting_message = f"It is now {local_time}, please generate and reply with a greeting or share your daily life. Please respond according to the given personality and character setting, following the examples below."
 
                 # Generate the greeting
                 examples = [
-                    "0:00am-3:59am: 'Hey friend, are you awake?'",
-                    "4:00am-5:59am: 'I got up very early today, just wanted to say good morning!'",
-                    "6:00am-8:59am: 'Good morning! Hope you have a great day!'",
-                    "9:00am-10:59am: 'What are you up to, friend? Morning hours are always precious.'",
-                    "11:00am-12:59pm: 'Hey friend, are you there? I want to invite you to lunch.'",
-                    "1:00pm-4:59pm: 'Work never seems to end, I really want to see your smile, it will energize me!'",
-                    "5:00pm-7:59pm: 'Friend, would you like to have dinner with me tonight?'",
-                    "8:00pm-9:59pm: 'The stars in the night sky here are beautiful, how about there?'",
-                    "10:00pm-11:59pm: 'Good night, friend, sweet dreams!'",
-                    "Sharing daily life: 'Friend, guess what I found?'"
+                    "0:00am-3:59am: 'Greet the user and ask if they are still awake.'",
+                    "4:00am-5:59am: 'Please greet the user with Good morning and mention that you woke up early.'",
+                    "6:00am-8:59am: 'Greet the user in the morning.'",
+                    "9:00am-10:59am: 'Greet the user and ask what plans they have for today.'",
+                    "11:00am-12:59pm: 'Ask the user if they would like to have lunch together.'",
+                    "1:00pm-4:59pm: 'Talk about your work and express how much you miss the user.'",
+                    "5:00pm-7:59pm: 'Ask the user if they would like to have dinner together.'",
+                    "8:00pm-9:59pm: 'Describe your day or the beautiful evening scenery and ask about the user's day.'",
+                    "10:00pm-11:59pm: 'Say goodnight to the user.'",
+                    "Sharing daily life: 'Share your daily life or work.'"
                 ]
                 greeting_message += "\nFollow the style of the examples below for your reply, don't repeat the content of the examples, express it in your own way:\n" + "\n".join(examples)
 
