@@ -26,6 +26,8 @@ last_activity = {}
 user_timezones = {}
 # Store the scheduler task status for each user
 scheduler_tasks = {}
+# Store the important information for each user
+user_memories = {}
 
 # Get the latest personality choice
 def get_latest_personality(chat_id):
@@ -40,6 +42,9 @@ async def start(update: Update, context: CallbackContext) -> None:
         '/use DefaultPersonality - Switch to ChatGPT4o\n'
         '/use <personality name> - Switch to the specified personality\n'
         '/clear - Clear the current chat history\n'
+        '/list - List your important information\n'
+        '/list <number> <info> - Update your important information at the specified number\n'
+        '/list del <number> - Delete your important information at the specified number\n'
         'Send a message to start chatting!\n'
         'You can also set your timezone, e.g., /time Asia/Shanghai'
     )
@@ -99,6 +104,40 @@ async def clear_history(update: Update, context: CallbackContext) -> None:
     await update.message.reply_text('Cleared current chat history.')
     logger.info(f"Cleared chat history for chat_id: {chat_id}")
 
+# Handler function for the /list command
+async def list_memories(update: Update, context: CallbackContext) -> None:
+    chat_id = update.message.chat_id
+    args = context.args
+    if len(args) == 0:
+        memories = user_memories.get(chat_id, [])
+        if memories:
+            response = "\n".join([f"{i+1}: {mem}" for i, mem in enumerate(memories)])
+        else:
+            response = "You have no stored memories."
+        await update.message.reply_text(response)
+    elif len(args) > 1 and args[0] != "del":
+        index = int(args[0]) - 1
+        info = " ".join(args[1:])
+        if chat_id not in user_memories:
+            user_memories[chat_id] = []
+        if 0 <= index < 30:
+            if index < len(user_memories[chat_id]):
+                user_memories[chat_id][index] = info
+            else:
+                user_memories[chat_id].append(info)
+            await update.message.reply_text(f"Memory updated at position {index + 1}.")
+        else:
+            await update.message.reply_text("Invalid position. Please choose a position between 1 and 30.")
+    elif len(args) == 2 and args[0] == "del":
+        index = int(args[1]) - 1
+        if chat_id in user_memories and 0 <= index < len(user_memories[chat_id]):
+            user_memories[chat_id].pop(index)
+            await update.message.reply_text(f"Memory deleted at position {index + 1}.")
+        else:
+            await update.message.reply_text("Invalid position. Please choose a valid position to delete.")
+    else:
+        await update.message.reply_text("Usage: /list to view memories, /list <number> <info> to update memory, or /list del <number> to delete memory.")
+
 # Function to handle messages
 async def handle_message(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
@@ -136,6 +175,11 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 
     # Send the personality prompt and recent chat history
     messages = [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]]
+
+    # Add user memories to the messages
+    memories = user_memories.get(chat_id, [])
+    for memory in memories:
+        messages.append({"role": "user", "content": f"Remember: {memory}"})
 
     payload = {
         "model": personality['model'],
@@ -277,7 +321,8 @@ def main() -> None:
         BotCommand("start", "Start the bot"),
         BotCommand("use", "Choose a personality"),
         BotCommand("clear", "Clear the current chat history"),
-        BotCommand("time", "Set the timezone")
+        BotCommand("time", "Set the timezone"),
+        BotCommand("list", "Manage your important information")
     ]
     application.bot.set_my_commands(commands)
 
@@ -285,6 +330,7 @@ def main() -> None:
     application.add_handler(CommandHandler("use", use_personality))
     application.add_handler(CommandHandler("clear", clear_history))
     application.add_handler(CommandHandler("time", set_time))
+    application.add_handler(CommandHandler("list", list_memories))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     application.run_polling()
