@@ -24,10 +24,10 @@ chat_histories = {}
 last_activity = {}
 # Store the timezone for each user
 user_timezones = {}
+# Store memories for each user
+user_memories = {}
 # Store the scheduler task status for each user
 scheduler_tasks = {}
-# Store the important information for each user
-user_memories = {}
 
 # Get the latest personality choice
 def get_latest_personality(chat_id):
@@ -42,9 +42,6 @@ async def start(update: Update, context: CallbackContext) -> None:
         '/use DefaultPersonality - Switch to ChatGPT4o\n'
         '/use <personality name> - Switch to the specified personality\n'
         '/clear - Clear the current chat history\n'
-        '/list - List your important information\n'
-        '/list <number> <info> - Update your important information at the specified number\n'
-        '/list del <number> - Delete your important information at the specified number\n'
         'Send a message to start chatting!\n'
         'You can also set your timezone, e.g., /time Asia/Shanghai'
     )
@@ -108,35 +105,37 @@ async def clear_history(update: Update, context: CallbackContext) -> None:
 async def list_memories(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     args = context.args
-    if len(args) == 0:
+
+    if not args:
         memories = user_memories.get(chat_id, [])
-        if memories:
-            response = "\n".join([f"{i+1}: {mem}" for i, mem in enumerate(memories)])
+        if not memories:
+            await update.message.reply_text('No memories stored.')
         else:
-            response = "You have no stored memories."
-        await update.message.reply_text(response)
-    elif len(args) > 1 and args[0] != "del":
-        index = int(args[0]) - 1
-        info = " ".join(args[1:])
-        if chat_id not in user_memories:
-            user_memories[chat_id] = []
-        if 0 <= index < 30:
-            if index < len(user_memories[chat_id]):
-                user_memories[chat_id][index] = info
-            else:
-                user_memories[chat_id].append(info)
-            await update.message.reply_text(f"Memory updated at position {index + 1}.")
-        else:
-            await update.message.reply_text("Invalid position. Please choose a position between 1 and 30.")
-    elif len(args) == 2 and args[0] == "del":
-        index = int(args[1]) - 1
-        if chat_id in user_memories and 0 <= index < len(user_memories[chat_id]):
-            user_memories[chat_id].pop(index)
-            await update.message.reply_text(f"Memory deleted at position {index + 1}.")
-        else:
-            await update.message.reply_text("Invalid position. Please choose a valid position to delete.")
+            memories_text = "\n".join([f"{i + 1}. {memory}" for i, memory in enumerate(memories)])
+            await update.message.reply_text(f"Memories:\n{memories_text}")
     else:
-        await update.message.reply_text("Usage: /list to view memories, /list <number> <info> to update memory, or /list del <number> to delete memory.")
+        try:
+            index = int(args[0]) - 1
+            new_memory = " ".join(args[1:])
+            if new_memory:
+                if chat_id not in user_memories:
+                    user_memories[chat_id] = []
+                if 0 <= index < len(user_memories[chat_id]):
+                    user_memories[chat_id][index] = new_memory
+                elif index == len(user_memories[chat_id]):
+                    user_memories[chat_id].append(new_memory)
+                else:
+                    await update.message.reply_text('Invalid memory index.')
+                    return
+                await update.message.reply_text('Memory updated.')
+            else:
+                if chat_id in user_memories and 0 <= index < len(user_memories[chat_id]):
+                    del user_memories[chat_id][index]
+                    await update.message.reply_text('Memory deleted.')
+                else:
+                    await update.message.reply_text('Invalid memory index.')
+        except (ValueError, IndexError):
+            await update.message.reply_text('Usage: /list <memory index> <new memory text>')
 
 # Function to handle messages
 async def handle_message(update: Update, context: CallbackContext) -> None:
@@ -173,29 +172,72 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         logger.error(f"Personality {current_personality} not found for chat_id: {chat_id}")
         return
 
-    # Send the personality prompt and recent chat history
-    messages = [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]]
-
-    # Add user memories to the messages
+    # Prepare memory check payload if there are memories
     memories = user_memories.get(chat_id, [])
-    for memory in memories:
-        messages.append({"role": "user", "content": f"Remember: {memory}"})
+    if memories:
+        memory_check_payload = {
+            "model": personality['model'],
+            "messages": [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]] + [{"role": "user", "content": f"Memory: {memory}"} for memory in memories] + [{"role": "user", "content": "Please determine the relevance between the user's message and the memories. If there is relevance, please reply with '1', if there is no relevance, please reply with '2'."}],
+            "temperature": personality['temperature']
+        }
 
-    payload = {
-        "model": personality['model'],
-        "messages": messages,
-        "temperature": personality['temperature']
-    }
+        logger.debug(f"Sending memory check payload to API for chat_id {chat_id}: {json.dumps(memory_check_payload, ensure_ascii=False)}")
+
+        try:
+            memory_check_response = requests.post(personality['api_url'], headers=headers, data=json.dumps(memory_check_payload))
+            memory_check_response.raise_for_status()
+            logger.debug(f"Memory check API response for chat_id {chat_id}: {memory_check_response.text}")
+
+            memory_check_result = memory_check_response.json().get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+        except requests.exceptions.HTTPError as http_err:
+            logger.error(f"HTTP error occurred: {http_err}")
+            memory_check_result = "2"
+        except requests.exceptions.RequestException as req_err:
+            logger.error(f"Request error occurred: {req_err}")
+            memory_check_result = "2"
+        except json.JSONDecodeError as json_err:
+            logger.error(f"JSON decode error: {json_err}")
+            memory_check_result = "2"
+        except Exception as err:
+            logger.error(f"An error occurred: {err}")
+            memory_check_result = "2"
+
+        # If memory check result contains both "1" and "2", retry the memory check
+        if "1" in memory_check_result and "2" in memory_check_result:
+            logger.info(f"Memory check result contains both '1' and '2', retrying...")
+            memory_check_result = await handle_message(update, context)
+            return
+
+        # If memory check result contains "1", include memories in final payload
+        if "1" in memory_check_result:
+            final_payload = {
+                "model": personality['model'],
+                "messages": [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]] + [{"role": "user", "content": f"Memory: {memory}"} for memory in memories],
+                "temperature": personality['temperature']
+            }
+        else:
+            final_payload = {
+                "model": personality['model'],
+                "messages": [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]],
+                "temperature": personality['temperature']
+            }
+    else:
+        final_payload = {
+            "model": personality['model'],
+            "messages": [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]],
+            "temperature": personality['temperature']
+        }
+
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "HTTP-Referer": YOUR_SITE_URL,  # Optional
         "X-Title": YOUR_APP_NAME  # Optional
     }
 
-    logger.debug(f"Sending payload to API for chat_id {chat_id}: {json.dumps(payload, ensure_ascii=False)}")
+    logger.debug(f"Sending final payload to API for chat_id {chat_id}: {json.dumps(final_payload, ensure_ascii=False)}")
 
     try:
-        response = requests.post(personality['api_url'], headers=headers, data=json.dumps(payload))
+        response = requests.post(personality['api_url'], headers=headers, data=json.dumps(final_payload))
         response.raise_for_status()  # Check if the HTTP request was successful
         logger.debug(f"API response for chat_id {chat_id}: {response.text}")
 
@@ -322,7 +364,7 @@ def main() -> None:
         BotCommand("use", "Choose a personality"),
         BotCommand("clear", "Clear the current chat history"),
         BotCommand("time", "Set the timezone"),
-        BotCommand("list", "Manage your important information")
+        BotCommand("list", "List and manage memories")
     ]
     application.bot.set_my_commands(commands)
 
