@@ -1,112 +1,147 @@
-# TelegramChatBOT
-This repository contains a Telegram bot that interacts with users based on different personalities. Users can select different personalities for the bot, clear chat history, and the bot has a probability of sending automated messages if the user is inactive for a long time.
-# Chatbot Telegram Bot
+好的，这里是更详细介绍 `/list` 命令的说明书更新。
 
-This repository contains a Telegram bot that interacts with users based on different personalities. Users can select different personalities for the bot, clear chat history, and the bot has a probability of sending automated messages if the user is inactive for a long time.
+## Chatbot Telegram Bot
+
+This is a Python-based Telegram bot that provides chat functionalities with various personalities. The bot allows users to switch personalities, manage chat histories, and set timezones.
 
 ## Features
 
-- Start the bot with a welcome message.
-- Switch between different personalities using the `/use ` command.
-- Clear the chat history with the `/clear ` command.
-- The bot will automatically send messages if the user has been inactive for more than an hour.
-- Stores user preferences and chat histories.
+- Switch between different personalities.
+- Clear chat history.
+- Set timezone.
+- List and manage memories.
+- Proactive greeting scheduler.
 
-## Prerequisites
+## Requirements
 
-- Python 3.7+
-- Telegram Bot Token (You can obtain this by creating a new bot through [BotFather](https://core.telegram.org/bots#botfather) on Telegram)
-- API Key for the personality model service (OpenRouter API https://openrouter.ai/)
+- Python 3.6+
+- Configuration file `config.py` containing the following variables:
+  - `API_KEY`
+  - `TELEGRAM_BOT_TOKEN`
+  - `YOUR_SITE_URL`
+  - `YOUR_APP_NAME`
+- Personalities file `personalities.py` containing the personality definitions.
 
-## Setup
+## Installation
 
-1. **Clone the repository:**
+1. Clone the repository:
+
     ```bash
-    git clone https://github.com/your-username/chatbot-telegram-bot.git
-    cd chatbot-telegram-bot
+   git clone https://github.com/AileenAugustus/TelegramChatBOT.git
+   cd TelegramChatBOT
+
     ```
 
-2. **Install dependencies:**
+2. Install the required libraries using `requirements.txt`:
+
     ```bash
     pip install -r requirements.txt
     ```
 
-3. **Configuration:**
-    - Create a `config.py` file in the root directory with the following content:
+3. Create and configure `config.py` with your API keys and other configurations:
+
     ```python
-    API_KEY = 'your_api_key'
-    TELEGRAM_BOT_TOKEN = 'your_telegram_bot_token'
-    YOUR_SITE_URL = 'your_site_url'  # Optional
-    YOUR_APP_NAME = 'your_app_name'  # Optional
+    # config.py
+    API_KEY = 'your_api_key_here'
+    TELEGRAM_BOT_TOKEN = 'your_telegram_bot_token_here'
+    YOUR_SITE_URL = 'your_site_url_here'
+    YOUR_APP_NAME = 'your_app_name_here'
     ```
 
-    - Create a `personalities.py` file in the root directory with your defined personalities:
-    ```python
-    personalities = {
-    "DefaultPersonality": {
-        "api_url": "https://openrouter.ai/api/v1/chat/completions",
-        "prompt": "You are chatgpt",
-        "temperature": 0.6,
-        "model": "openai/gpt-4o"
-    },
-    "your friend": {
-        "api_url": "https://openrouter.ai/api/v1/chat/completions",
-        "prompt": "insert your prompt here",
-        "temperature": 1,
-        "model": "openai/gpt-4o"
-    },
-    "more": {
-        "api_url": "https://openrouter.ai/api/v1/chat/completions",
-        "prompt": "insert your prompt here",
-        "temperature": 1,
-        "model": "openai/gpt-4o"
-    },
- 
-   }
+4. Create and configure `personalities.py` with the personality definitions.
 
-    ```
+## Usage
 
-## Running the Bot
-
-To start the bot, simply run:
+Run the bot:
 
 ```bash
 python bot.py
 ```
 
-The bot will begin polling and you can interact with it through Telegram.
+## Bot Commands
 
-## Usage
+- `/start`: Start the bot and show the welcome message.
+- `/use <personality name>`: Switch to the specified personality.
+- `/clear`: Clear the current chat history.
+- `/time <timezone name>`: Set the timezone.
+- `/list`: List and manage memories.
 
-### Commands
+## `/list` Command
 
-- **/start**: Start the bot and get a welcome message with instructions.
-- **/use `<personality_name>`**: Switch the bot to use a specific personality.
-    - Example: `/use DefaultPersonality`
-- **/clear**: Clear the current chat history.
+The `/list` command allows users to list and manage their memories. Here are the detailed usages:
 
-### Messaging
+### List Memories
 
-Send any text message to the bot to start a conversation. The bot will respond based on the currently selected personality and maintain a history of the conversation.
+### Update a Memory
 
-### Automated Messages
+- You can update a specific memory by providing the memory index and the new memory text.
+  
+  **Usage:**
+  
+  ```plaintext
+  /list <memory index> <new memory text>
+  ```
 
-If the user has been inactive for more than an hour, the bot has a probability of sending automated messages. These messages are generated based on the selected personality and the time of day.
+  **Example:**
+  
+  ```plaintext
+  /list 1 This is the updated memory text for memory 1.
+  ```
+  
+### Add a New Memory
 
-## Contributing
+- If you provide an index equal to the current number of memories + 1, a new memory will be added.
+  
+  **Usage:**
+  
+  ```plaintext
+  /list <next memory index> <new memory text>
+  ```
 
-Feel free to fork the repository and submit pull requests. Contributions are welcome!
+  **Example:**
+  
+  ```plaintext
+  /list 4 This is a new memory.
+  ```
+  
+### Delete a Memory
 
-## Support
+- You can delete a specific memory by providing the memory index and no additional text.
+  
+  **Usage:**
+  
+  ```plaintext
+  /list <memory index>
+  ```
+  
+## Code Explanation
 
-If you encounter any issues or have questions, please open an issue on GitHub.
+### Main Function
 
-## Acknowledgements
+The `main` function initializes the bot, sets commands, and adds handlers for different commands and messages.
 
-- Thanks to the [Python Telegram Bot](https://github.com/python-telegram-bot/python-telegram-bot) library for providing the Telegram bot API.
-- Thanks to [OpenRouter](https://openrouter.ai/) for providing the API support.
-- And other tools and libraries used.
+### Command Handlers
+
+- `start`: Sends a welcome message and starts the greeting scheduler.
+- `use_personality`: Switches to the specified personality.
+- `set_time`: Sets the user's timezone.
+- `clear_history`: Clears the chat history.
+- `list_memories`: Lists and manages memories.
+
+### Message Handler
+
+The `handle_message` function processes incoming messages, updates chat history, and sends requests to the API based on the selected personality.
+
+### Greeting Scheduler
+
+The `greeting_scheduler` function sends periodic greetings based on the user's last activity and timezone.
+
+## Logging
+
+The bot uses Python's `logging` module to log messages for debugging and monitoring purposes.
+
+## Contributions
+
+Feel free to open issues and submit pull requests.
 
 ---
-
-Happy chatting!
