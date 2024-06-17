@@ -16,8 +16,8 @@ This is a Python-based Telegram bot that provides chat functionalities with vari
 - Configuration file `config.py` containing the following variables:
   - `API_KEY`
   - `TELEGRAM_BOT_TOKEN`
-  - `YOUR_SITE_URL`
-  - `YOUR_APP_NAME`
+  - `YOUR_SITE_URL` #Optional
+  - `YOUR_APP_NAME` #Optional
 - Personalities file `personalities.py` containing the personality definitions.
 
 ## Installation
@@ -42,8 +42,8 @@ This is a Python-based Telegram bot that provides chat functionalities with vari
     # config.py
     API_KEY = 'your_api_key_here'
     TELEGRAM_BOT_TOKEN = 'your_telegram_bot_token_here'
-    YOUR_SITE_URL = 'your_site_url_here'
-    YOUR_APP_NAME = 'your_app_name_here'
+    YOUR_SITE_URL = 'your_site_url_here' #Optional
+    YOUR_APP_NAME = 'your_app_name_here' #Optional
     ```
 
 4. Create and configure `personalities.py` with the personality definitions.
