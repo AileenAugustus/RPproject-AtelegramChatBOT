@@ -132,7 +132,7 @@ The `handle_message` function processes incoming messages, updates chat history,
 
 ### Greeting Scheduler
 
-The `greeting_scheduler` function sends periodic greetings based on the user's last activity and timezone.
+The `greeting_scheduler` function sends greetings based on the user's last activity and timezone.
 
 ## Logging
 
