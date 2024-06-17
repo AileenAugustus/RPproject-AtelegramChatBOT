@@ -172,12 +172,18 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         logger.error(f"Personality {current_personality} not found for chat_id: {chat_id}")
         return
 
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "HTTP-Referer": YOUR_SITE_URL,  # Optional
+        "X-Title": YOUR_APP_NAME  # Optional
+    }
+
     # Prepare memory check payload if there are memories
     memories = user_memories.get(chat_id, [])
     if memories:
         memory_check_payload = {
             "model": personality['model'],
-            "messages": [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]] + [{"role": "user", "content": f"Memory: {memory}"} for memory in memories] + [{"role": "user", "content": "Please determine the relevance between the user's message and the memories. If there is relevance, please reply with '1', if there is no relevance, please reply with '2'."}],
+            "messages": [{"role": "user", "content": msg} for msg in chat_histories[chat_id]] + [{"role": "user", "content": f"Memory: {memory}"} for memory in memories] + [{"role": "user", "content": "Please determine the relevance between the user's message and the memories. If there is relevance, please reply with '1', if there is no relevance, please reply with '2'."}],
             "temperature": personality['temperature']
         }
 
@@ -205,7 +211,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         # If memory check result contains both "1" and "2", retry the memory check
         if "1" in memory_check_result and "2" in memory_check_result:
             logger.info(f"Memory check result contains both '1' and '2', retrying...")
-            memory_check_result = await handle_message(update, context)
+            await handle_message(update, context)
             return
 
         # If memory check result contains "1", include memories in final payload
@@ -227,12 +233,6 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
             "messages": [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]],
             "temperature": personality['temperature']
         }
-
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "HTTP-Referer": YOUR_SITE_URL,  # Optional
-        "X-Title": YOUR_APP_NAME  # Optional
-    }
 
     logger.debug(f"Sending final payload to API for chat_id {chat_id}: {json.dumps(final_payload, ensure_ascii=False)}")
 
