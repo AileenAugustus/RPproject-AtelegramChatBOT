@@ -218,7 +218,7 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
         if "1" in memory_check_result:
             final_payload = {
                 "model": personality['model'],
-                "messages": [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]] + [{"role": "user", "content": f"Memory: {memory}"} for memory in memories],
+                "messages": [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]] + [{"role": "user", "content": "Each memory is independent, do not mix them up. Only use one relevant memory per response."}] + [{"role": "user", "content": f"Memory: {memory}"} for memory in memories],
                 "temperature": personality['temperature']
             }
         else:
