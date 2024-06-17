@@ -1,5 +1,3 @@
-好的，这里是更详细介绍 `/list` 命令的说明书更新。
-
 ## Chatbot Telegram Bot
 
 This is a Python-based Telegram bot that provides chat functionalities with various personalities. The bot allows users to switch personalities, manage chat histories, and set timezones.
