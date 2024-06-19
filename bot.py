@@ -273,32 +273,32 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
 async def greeting_scheduler(chat_id, context: CallbackContext):
     logger.info(f"greeting_scheduler started for chat_id: {chat_id}")
     while True:
-        await asyncio.sleep(3600)  # Check for new messages every 60 seconds
+        await asyncio.sleep(1800)  # Check for new messages every 1800 seconds
         logger.info(f"Checking last activity for chat_id: {chat_id}")
         if chat_id in last_activity:
             delta = datetime.now() - last_activity[chat_id]
             logger.info(f"Time since last activity: {delta.total_seconds()} seconds")
-            if delta.total_seconds() >= 3600:  # Last activity was over 1 minute ago
+            if delta.total_seconds() >= 3600:  # Last activity was over 3600 seconds ago
                 logger.info(f"No activity detected for chat_id {chat_id} for 60 seconds.")
-                wait_time = random.randint(3600, 14400)  # Wait randomly between 1 to 2 minutes
+                wait_time = random.randint(7200, 14400)  # Wait randomly between 2 to 4 hours
                 logger.info(f"Waiting for {wait_time} seconds before sending greeting")
                 await asyncio.sleep(wait_time)
 
                 # Get the user's timezone
                 timezone = user_timezones.get(chat_id, 'UTC')
                 local_time = datetime.now(pytz.timezone(timezone)).strftime("%Y-%m-%d %H:%M:%S")
-                greeting_message = f"It is now {local_time}, please generate and reply with a greeting or share your daily life. Please respond according to the given personality and character setting, following the examples below."
+                greeting_message = f"It is now {local_time}, please generate and reply with a greeting and share your daily life. Please respond according to the given personality and character setting, following the examples below."
 
                 # Generate the greeting
                 examples = [
-                    "0:00am-3:59am: 'Greet the user and ask if they are still awake.'",
-                    "4:00am-5:59am: 'Please greet the user with Good morning and mention that you woke up early.'",
+                    "0:00am-3:59am: 'Greet the user and ask if they are still awake or if they have already fallen alseep.'",
+                    "4:00am-5:59am: 'Please greet the user with Good morning, mention that you woke up early and ask if they are still sleeping.'",
                     "6:00am-8:59am: 'Greet the user in the morning.'",
                     "9:00am-10:59am: 'Greet the user and ask what plans they have for today.'",
                     "11:00am-12:59pm: 'Ask the user if they would like to have lunch together.'",
                     "1:00pm-4:59pm: 'Talk about your work and express how much you miss the user.'",
                     "5:00pm-7:59pm: 'Ask the user if they would like to have dinner together.'",
-                    "8:00pm-9:59pm: 'Describe your day or the beautiful evening scenery and ask about the user's day.'",
+                    "8:00pm-9:59pm: 'Describe your day or the beautiful evening/night scenery.'",
                     "10:00pm-11:59pm: 'Say goodnight to the user.'",
                     "Sharing daily life: 'Share your daily life or work.'"
                 ]
