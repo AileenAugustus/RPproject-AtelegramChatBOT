@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import logging
-import requests
+import aiohttp
 import json
 import asyncio
 import random
@@ -16,9 +16,9 @@ from personalities import personalities
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# 存储每个用户当前的个性选择
+# 存储每个用户的当前人格选择
 user_personalities = {}
-# 存储每个用户的聊天记录
+# 存储每个用户的聊天历史
 chat_histories = {}
 # 存储每个用户的最后活动时间
 last_activity = {}
@@ -28,8 +28,10 @@ user_timezones = {}
 user_memories = {}
 # 存储每个用户的调度任务状态
 scheduler_tasks = {}
+# 存储每个用户的消息ID
+message_ids = {}
 
-# 获取最新的个性选择
+# 获取最新的人格选择
 def get_latest_personality(chat_id):
     return user_personalities.get(chat_id, "DefaultPersonality")
 
@@ -38,51 +40,50 @@ async def start(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     await update.message.reply_text(
         '欢迎使用聊天机器人！\n'
-        '你可以使用以下命令选择一个个性：\n'
+        '你可以使用以下命令选择人格：\n'
         '/use DefaultPersonality - 切换到 ChatGPT4o\n'
-        '/use <个性名称> - 切换到指定个性\n'
-        '/clear - 清除当前聊天记录\n'
-        '/retry - 重新获取回复\n'
-        '/list - 记忆列表\n'
+        '/use <personality name> - 切换到指定的人格\n'
+        '/clear - 清除当前的聊天记录\n'
         '发送消息开始聊天吧！\n'
-        '你还可以设置你的时区，例如：/time Asia/Shanghai'
+        '你也可以设置你的时区，例如 /time Asia/Shanghai\n'
+        '使用/retry重新发送最后一条消息'
     )
     last_activity[chat_id] = datetime.now()
 
-    # 如果有正在运行的调度任务，取消它
+    # 检查是否有正在运行的调度任务，如果有则取消它
     if chat_id in scheduler_tasks:
         scheduler_tasks[chat_id].cancel()
-        logger.info(f"取消现有的问候调度任务，chat_id: {chat_id}")
+        logger.info(f"取消了 chat_id: {chat_id} 的现有问候调度任务")
 
     # 启动一个新的调度任务
-    logger.info(f"启动新的问候调度任务，chat_id: {chat_id}")
+    logger.info(f"为 chat_id: {chat_id} 启动新的问候调度任务")
     task = context.application.create_task(greeting_scheduler(chat_id, context))
     scheduler_tasks[chat_id] = task
-    logger.info(f"问候调度任务已为 chat_id {chat_id} 创建")
+    logger.info(f"为 chat_id: {chat_id} 创建了 greeting_scheduler 任务")
 
 # /use 命令的处理函数
 async def use_personality(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     args = context.args
     if len(args) != 1:
-        await update.message.reply_text('用法: /use <个性名称>')
+        await update.message.reply_text('用法: /use <personality name>')
         return
 
     personality_choice = args[0]
     if personality_choice in personalities:
         user_personalities[chat_id] = personality_choice
-        await update.message.reply_text(f'切换到 {personality_choice} 个性。')
-        logger.info(f"用户 {chat_id} 切换到个性 {personality_choice}")
+        await update.message.reply_text(f'切换到 {personality_choice} 人格。')
+        logger.info(f"用户 {chat_id} 切换到人格 {personality_choice}")
     else:
-        await update.message.reply_text('指定的个性未找到。')
-        logger.warning(f"用户 {chat_id} 尝试切换到未知个性 {personality_choice}")
+        await update.message.reply_text('未找到指定的人格。')
+        logger.warning(f"用户 {chat_id} 尝试切换到未知人格 {personality_choice}")
 
 # /time 命令的处理函数
 async def set_time(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     args = context.args
     if len(args) != 1:
-        await update.message.reply_text('用法: /time <时区名称>')
+        await update.message.reply_text('用法: /time <timezone name>')
         return
 
     timezone = args[0]
@@ -93,15 +94,15 @@ async def set_time(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text(f'时区设置为 {timezone}')
         logger.info(f"用户 {chat_id} 设置时区为 {timezone}")
     except pytz.UnknownTimeZoneError:
-        await update.message.reply_text('无效的时区名称。请使用有效的时区名称，例如：Asia/Shanghai')
+        await update.message.reply_text('无效的时区名称。请使用有效的时区名称，例如 Asia/Shanghai')
         logger.warning(f"用户 {chat_id} 尝试设置未知时区 {timezone}")
 
 # /clear 命令的处理函数
 async def clear_history(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     chat_histories[chat_id] = []
-    await update.message.reply_text('已清除当前聊天记录。')
-    logger.info(f"已清除 chat_id 为 {chat_id} 的聊天记录")
+    await update.message.reply_text('已清除当前的聊天记录。')
+    logger.info(f"清除了 chat_id: {chat_id} 的聊天记录")
 
 # /list 命令的处理函数
 async def list_memories(update: Update, context: CallbackContext) -> None:
@@ -111,10 +112,10 @@ async def list_memories(update: Update, context: CallbackContext) -> None:
     if not args:
         memories = user_memories.get(chat_id, [])
         if not memories:
-            await update.message.reply_text('没有存储的记忆。')
+            await update.message.reply_text('没有存储任何记忆。')
         else:
             memories_text = "\n".join([f"{i + 1}. {memory}" for i, memory in enumerate(memories)])
-            await update.message.reply_text(f"记忆:\n{memories_text}")
+            await update.message.reply_text(f"记忆：\n{memories_text}")
     else:
         try:
             index = int(args[0]) - 1
@@ -138,145 +139,6 @@ async def list_memories(update: Update, context: CallbackContext) -> None:
                     await update.message.reply_text('无效的记忆索引。')
         except (ValueError, IndexError):
             await update.message.reply_text('用法: /list <记忆索引> <新记忆文本>')
-
-# 存储每个用户的消息ID
-message_ids = {}
-
-# 处理消息的函数
-async def handle_message(update: Update, context: CallbackContext, reprocessing=False) -> str:
-    chat_id = update.message.chat_id
-    if reprocessing:
-        message = update.message.reply_to_message.text
-    else:
-        message = update.message.text
-
-    logger.info(f"收到来自 {chat_id} 的消息: {message}")
-
-    # 如果聊天记录尚不存在，则初始化
-    if chat_id not in chat_histories:
-        chat_histories[chat_id] = []
-
-    # 添加新消息到聊天记录
-    if not reprocessing:
-        chat_histories[chat_id].append(f"User: {message}")
-
-    # 仅保留最近的30条消息
-    if len(chat_histories[chat_id]) > 30:
-        chat_histories[chat_id].pop(0)
-
-    # 更新最后活动时间
-    last_activity[chat_id] = datetime.now()
-
-    # 获取当前的个性选择
-    current_personality = get_latest_personality(chat_id)
-    
-    # 如果当前个性未定义，则使用默认个性
-    if current_personality not in personalities:
-        current_personality = "DefaultPersonality"
-
-    try:
-        personality = personalities[current_personality]
-    except KeyError:
-        await update.message.reply_text(f"找不到个性: {current_personality}")
-        logger.error(f"个性 {current_personality} 未找到，chat_id: {chat_id}")
-        return
-
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "HTTP-Referer": YOUR_SITE_URL,  # 可选
-        "X-Title": YOUR_APP_NAME  # 可选
-    }
-
-    final_payload = {
-        "model": personality['model'],
-        "messages": [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]],
-        "temperature": personality['temperature']
-    }
-
-    logger.debug(f"发送最终负载到API，chat_id {chat_id}: {json.dumps(final_payload, ensure_ascii=False)}")
-
-    try:
-        response = requests.post(personality['api_url'], headers=headers, data=json.dumps(final_payload))
-        response.raise_for_status()  # 检查HTTP请求是否成功
-        logger.debug(f"API响应，chat_id {chat_id}: {response.text}")
-
-        response_json = response.json()
-        reply = response_json.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
-    except requests.exceptions.HTTPError as http_err:
-        logger.error(f"发生HTTP错误: {http_err}")
-        reply = f"HTTP错误发生: {http_err}"
-    except requests.exceptions.RequestException as req_err:
-        logger.error(f"请求错误发生: {req_err}")
-        reply = f"请求错误发生: {req_err}"
-    except json.JSONDecodeError as json_err:
-        logger.error(f"JSON解码错误: {json_err}")
-        reply = f"JSON解码错误: {json_err}"
-    except Exception as err:
-        logger.error(f"发生错误: {err}")
-        reply = f"发生错误: {err}"
-
-    # 删除不必要的前缀（例如，名字）
-    if "：" in reply:
-        reply = reply.split("：", 1)[-1].strip()
-
-    logger.debug(f"原始回复: {reply}")
-    if "：" in reply:
-        split_result = reply.split("：", 1)
-        logger.debug(f"分割结果: {split_result}")
-        if len(split_result) > 1:
-            reply = split_result[-1].strip()
-            logger.debug(f"处理后的回复: {reply}")
-        else:
-            logger.debug("未找到分割点")
-    else:
-        logger.debug("回复中未找到 '：'")
-
-    if not reprocessing:
-        # 添加API响应到聊天记录
-        chat_histories[chat_id].append(f"Bot: {reply}")
-
-    logger.info(f"回复给 {chat_id}: {reply}")
-
-    try:
-        sent_message = await update.message.reply_text(reply)
-        # 记录机器人的消息ID
-        if chat_id not in message_ids:
-            message_ids[chat_id] = []
-        message_ids[chat_id].append(sent_message.message_id)
-    except Exception as err:
-        logger.error(f"发送消息失败: {err}")
-
-    return reply
-
-
-    # 删除不必要的前缀（例如，名字）
-    if "：" in reply:
-        reply = reply.split("：", 1)[-1].strip()
-
-    logger.debug(f"原始回复: {reply}")
-    if "：" in reply:
-        split_result = reply.split("：", 1)
-        logger.debug(f"分割结果: {split_result}")
-        if len(split_result) > 1:
-            reply = split_result[-1].strip()
-            logger.debug(f"处理后的回复: {reply}")
-        else:
-            logger.debug("未找到分割点")
-    else:
-        logger.debug("回复中未找到 '：'")
-
-    if not reprocessing:
-        # 添加API响应到聊天记录
-        chat_histories[chat_id].append(f"Bot: {reply}")
-
-    logger.info(f"回复给 {chat_id}: {reply}")
-
-    try:
-        await update.message.reply_text(reply)
-    except Exception as err:
-        logger.error(f"发送消息失败: {err}")
-
-    return reply
 
 # /retry 命令的处理函数
 async def retry_last_response(update: Update, context: CallbackContext) -> None:
@@ -312,64 +174,9 @@ async def retry_last_response(update: Update, context: CallbackContext) -> None:
                         except Exception as delete_err:
                             logger.error(f"删除消息失败: {delete_err}")
 
-                    # 使用更新后的聊天记录重新请求API响应
-                    try:
-                        # 获取当前的个性选择
-                        current_personality = get_latest_personality(chat_id)
-                        if current_personality not in personalities:
-                            current_personality = "DefaultPersonality"
+                    # 检查记忆的相关性并重新请求API响应
+                    await process_message(chat_id, last_user_message, update.message, context)
 
-                        personality = personalities[current_personality]
-
-                        messages = [
-                            {"role": "system", "content": personality['prompt']},
-                            {"role": "user", "content": last_user_message}
-                        ]
-                        payload = {
-                            "model": personality['model'],
-                            "messages": messages,
-                            "temperature": personality['temperature']
-                        }
-                        headers = {
-                            "Authorization": f"Bearer {API_KEY}",
-                            "HTTP-Referer": YOUR_SITE_URL,  # 可选，根据需要添加
-                            "X-Title": YOUR_APP_NAME  # 可选，根据需要添加
-                        }
-
-                        logger.debug(f"发送负载到API，chat_id {chat_id}: {json.dumps(payload, ensure_ascii=False)}")
-
-                        response = requests.post(personality['api_url'], headers=headers, data=json.dumps(payload))
-                        response.raise_for_status()
-                        logger.debug(f"API响应，chat_id {chat_id}: {response.text}")
-
-                        response_json = response.json()
-                        reply = response_json.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
-                        if "：" in reply:
-                            reply = reply.split("：", 1)[-1].strip()
-
-                        # 将新的 API 回复添加到聊天记录
-                        chat_histories[chat_id].append(f"Bot: {reply}")
-
-                        # 发送新的 API 回复到 Telegram
-                        sent_message = await context.bot.send_message(chat_id=chat_id, text=reply)
-                        # 记录新的消息ID
-                        message_ids[chat_id].append(sent_message.message_id)
-
-                    except requests.exceptions.HTTPError as http_err:
-                        logger.error(f"发生HTTP错误: {http_err}")
-                        await context.bot.send_message(chat_id=chat_id, text=f"HTTP错误发生: {http_err}")
-
-                    except requests.exceptions.RequestException as req_err:
-                        logger.error(f"请求错误发生: {req_err}")
-                        await context.bot.send_message(chat_id=chat_id, text=f"请求错误发生: {req_err}")
-
-                    except json.JSONDecodeError as json_err:
-                        logger.error(f"JSON解码错误: {json_err}")
-                        await context.bot.send_message(chat_id=chat_id, text=f"JSON解码错误: {json_err}")
-
-                    except Exception as err:
-                        logger.error(f"发生错误: {err}")
-                        await context.bot.send_message(chat_id=chat_id, text=f"发生错误: {err}")
                 else:
                     await context.bot.send_message(chat_id=chat_id, text="未找到对应的用户消息。")
             else:
@@ -381,53 +188,189 @@ async def retry_last_response(update: Update, context: CallbackContext) -> None:
         logger.error(f"处理消息时发生主要错误: {main_err}")
         await context.bot.send_message(chat_id=chat_id, text="处理消息时发生主要错误，请稍后重试。")
 
+# 消息处理函数
+async def handle_message(update: Update, context: CallbackContext) -> None:
+    chat_id = update.message.chat_id
+    message = update.message.text
 
-# 问候调度任务函数
+    logger.info(f"收到来自 {chat_id} 的消息: {message}")
+
+    # 初始化聊天历史（如果尚未存在）
+    if chat_id not in chat_histories:
+        chat_histories[chat_id] = []
+
+    # 将新消息添加到聊天历史
+    chat_histories[chat_id].append(f"User: {message}")
+
+    # 仅保留最近的30条消息
+    if len(chat_histories[chat_id]) > 30:
+        chat_histories[chat_id].pop(0)
+
+    # 更新最后活动时间
+    last_activity[chat_id] = datetime.now()
+
+    await process_message(chat_id, message, update.message, context)
+
+# 处理消息的函数，包括记忆检查
+async def process_message(chat_id, message, telegram_message, context):
+    # 获取当前的人格选择
+    current_personality = get_latest_personality(chat_id)
+
+    # 如果当前人格未定义，则使用默认人格
+    if current_personality not in personalities:
+        current_personality = "DefaultPersonality"
+
+    try:
+        personality = personalities[current_personality]
+    except KeyError:
+        await telegram_message.reply_text(f"找不到人格: {current_personality}")
+        logger.error(f"找不到人格 {current_personality} 对于 chat_id: {chat_id}")
+        return
+
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "HTTP-Referer": YOUR_SITE_URL,  # 可选
+        "X-Title": YOUR_APP_NAME  # 可选
+    }
+
+    # 准备记忆检查负载（如果有记忆）
+    memories = user_memories.get(chat_id, [])
+    if memories:
+        memory_check_payload = {
+            "model": personality['model'],
+            "messages": [{"role": "user", "content": msg} for msg in chat_histories[chat_id]] + [{"role": "user", "content": f"记忆: {memory}"} for memory in memories] + [{"role": "user", "content": "请确定用户的消息与记忆之间的相关性。如果有相关性，请回复“1”，如果没有相关性，请回复“2”。"}],
+            "temperature": personality['temperature']
+        }
+
+        logger.debug(f"为 chat_id {chat_id} 向API发送记忆检查负载: {json.dumps(memory_check_payload, ensure_ascii=False)}")
+
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.post(personality['api_url'], headers=headers, json=memory_check_payload) as memory_check_response:
+                    memory_check_response.raise_for_status()
+                    memory_check_result = await memory_check_response.json()
+                    logger.debug(f"chat_id {chat_id} 的记忆检查API响应: {memory_check_result}")
+
+                    memory_check_result = memory_check_result.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+            except aiohttp.ClientResponseError as http_err:
+                logger.error(f"HTTP 错误发生: {http_err}")
+                memory_check_result = "2"
+            except aiohttp.ClientError as req_err:
+                logger.error(f"请求错误发生: {req_err}")
+                memory_check_result = "2"
+            except json.JSONDecodeError as json_err:
+                logger.error(f"JSON 解码错误: {json_err}")
+                memory_check_result = "2"
+            except Exception as err:
+                logger.error(f"发生错误: {err}")
+                memory_check_result = "2"
+
+        # 如果记忆检查结果包含“1”，则在最终负载中包含记忆
+        if "1" in memory_check_result:
+            final_payload = {
+                "model": personality['model'],
+                "messages": [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]] + [{"role": "user", "content": "每个记忆都是独立的，不要混淆它们。每次响应只使用一个相关的记忆。"}] + [{"role": "user", "content": f"记忆: {memory}"} for memory in memories],
+                "temperature": personality['temperature']
+            }
+        else:
+            final_payload = {
+                "model": personality['model'],
+                "messages": [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]],
+                "temperature": personality['temperature']
+            }
+    else:
+        final_payload = {
+            "model": personality['model'],
+            "messages": [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]],
+            "temperature": personality['temperature']
+        }
+
+    logger.debug(f"为 chat_id {chat_id} 向API发送最终负载: {json.dumps(final_payload, ensure_ascii=False)}")
+
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.post(personality['api_url'], headers=headers, json=final_payload) as response:
+                response.raise_for_status()  # 检查HTTP请求是否成功
+                response_json = await response.json()
+                logger.debug(f"chat_id {chat_id} 的API响应: {response_json}")
+
+                reply = response_json.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+        except aiohttp.ClientResponseError as http_err:
+            logger.error(f"HTTP 错误发生: {http_err}")
+            reply = f"HTTP 错误发生: {http_err}"
+        except aiohttp.ClientError as req_err:
+            logger.error(f"请求错误发生: {req_err}")
+            reply = f"请求错误发生: {req_err}"
+        except json.JSONDecodeError as json_err:
+            logger.error(f"JSON 解码错误: {json_err}")
+            reply = f"JSON 解码错误: {json_err}"
+        except Exception as err:
+            logger.error(f"发生错误: {err}")
+            reply = f"发生错误: {err}"
+
+    # 移除不必要的前缀（例如，名字）
+    if "：" in reply:
+        reply = reply.split("：", 1)[-1].strip()
+
+    # 将API响应添加到聊天历史
+    chat_histories[chat_id].append(f"Bot: {reply}")
+
+    logger.info(f"回复 {chat_id}: {reply}")
+
+    try:
+        sent_message = await telegram_message.reply_text(reply)
+        # 记录消息ID
+        if chat_id not in message_ids:
+            message_ids[chat_id] = []
+        message_ids[chat_id].append(sent_message.message_id)
+    except Exception as err:
+        logger.error(f"发送消息失败: {err}")
+
+# 问候调度程序
 async def greeting_scheduler(chat_id, context: CallbackContext):
-    logger.info(f"问候调度任务已启动，chat_id: {chat_id}")
+    logger.info(f"为 chat_id: {chat_id} 启动 greeting_scheduler")
     while True:
-        await asyncio.sleep(1800)  # 每1800秒检查一次新消息
-        logger.info(f"检查 chat_id {chat_id} 的最后活动时间")
+        await asyncio.sleep(3600)  # 每3600秒检查一次新消息
+        logger.info(f"检查 chat_id: {chat_id} 的最后活动时间")
         if chat_id in last_activity:
             delta = datetime.now() - last_activity[chat_id]
-            logger.info(f"自上次活动以来的时间: {delta.total_seconds()} 秒")
-            if delta.total_seconds() >= 3600:  # 最后一次活动超过3600秒
-                logger.info(f"检测到 chat_id {chat_id} 在60秒内无活动。")
-                wait_time = random.randint(3600, 14400)  # 随机等待2到4小时
+            logger.info(f"距离最后活动的时间: {delta.total_seconds()} 秒")
+            if delta.total_seconds() >= 3600:  # 最后活动时间超过1小时
+                logger.info(f"chat_id {chat_id} 在1小时内没有活动。")
+                wait_time = random.randint(3600, 14400)  # 随机等待1到4小时
                 logger.info(f"等待 {wait_time} 秒后发送问候")
-
                 await asyncio.sleep(wait_time)
 
                 # 获取用户的时区
                 timezone = user_timezones.get(chat_id, 'UTC')
                 local_time = datetime.now(pytz.timezone(timezone)).strftime("%Y-%m-%d %H:%M:%S")
-                greeting_message = f"现在是 {local_time}，请生成并回复一个问候并分享你的日常生活。请根据给定的个性和角色设置进行回应，遵循以下示例风格。"
+                greeting_message = f"现在是 {local_time}，请生成并回复一个问候或分享你的日常生活。请根据给定的人格和角色设置回应，以下是一些示例。"
 
-                # 生成问候语
+                # 生成问候
                 examples = [
-                    "0:00-3:59: '向用户问好并询问他们是否已经入睡。'",
-                    "4:00-5:59: '请向用户道早安，提到你早起，并询问他们是否还在睡觉。'",
+                    "0:00-3:59: '向用户问好，并询问他们是否还醒着。'",
+                    "4:00-5:59: '请向用户说早上好，并提到你早起了。'",
                     "6:00-8:59: '在早上向用户问好。'",
-                    "9:00-10:59: '询问用户今天有什么计划。'",
-                    "11:00-12:59: '询问用户是否愿意和你共进午餐。'",
-                    "13:00-16:59: '谈论你的日常生活并表达对用户的想念。'",
-                    "17:00-19:59: '询问用户是否愿意和你共进晚餐。'",
-                    "20:00-21:59: '描述你的一天或美丽的夜晚景色。'",
-                    "22:00-23:59: '向用户道晚安。'",
+                    "9:00-10:59: '向用户问好，并询问他们今天有什么计划。'",
+                    "11:00-12:59: '询问用户是否想一起吃午饭。'",
+                    "13:00-16:59: '谈谈你的工作，并表达你对用户的思念。'",
+                    "17:00-19:59: '询问用户是否想一起吃晚饭。'",
+                    "20:00-21:59: '描述你的一天或美丽的晚景，并询问用户的一天。'",
+                    "22:00-23:59: '向用户说晚安。'",
                     "分享日常生活: '分享你的日常生活或工作。'"
                 ]
-                greeting_message += "\n请遵循以下示例的风格进行回复，不要重复示例内容，用你自己的方式表达:\n" + "\n".join(examples)
+                greeting_message += "\n按照示例的风格进行回复，不要重复示例的内容，用你自己的方式表达：\n" + "\n".join(examples)
 
-                logger.info(f"发送问候消息给 chat_id {chat_id}: {greeting_message}")
+                logger.info(f"向 chat_id {chat_id} 发送问候消息: {greeting_message}")
 
-                # 获取当前的个性选择
+                # 获取当前的人格选择
                 current_personality = get_latest_personality(chat_id)
                 if current_personality not in personalities:
                     current_personality = "DefaultPersonality"
                 try:
                     personality = personalities[current_personality]
                 except KeyError:
-                    await context.bot.send_message(chat_id=chat_id, text=f"找不到个性: {current_personality}")
+                    await context.bot.send_message(chat_id=chat_id, text=f"找不到人格: {current_personality}")
                     continue
 
                 messages = [{"role": "system", "content": personality['prompt']}, {"role": "user", "content": greeting_message}]
@@ -442,31 +385,32 @@ async def greeting_scheduler(chat_id, context: CallbackContext):
                     "X-Title": YOUR_APP_NAME  # 可选
                 }
 
-                logger.debug(f"发送负载到API，chat_id {chat_id}: {json.dumps(payload, ensure_ascii=False)}")
+                logger.debug(f"为 chat_id {chat_id} 向API发送负载: {json.dumps(payload, ensure_ascii=False)}")
 
-                try:
-                    response = requests.post(personality['api_url'], headers=headers, data=json.dumps(payload))
-                    response.raise_for_status()
-                    logger.debug(f"API响应，chat_id {chat_id}: {response.text}")
+                async with aiohttp.ClientSession() as session:
+                    try:
+                        async with session.post(personality['api_url'], headers=headers, json=payload) as response:
+                            response.raise_for_status()
+                            response_json = await response.json()
+                            logger.debug(f"chat_id {chat_id} 的API响应: {response_json}")
 
-                    response_json = response.json()
-                    reply = response_json.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
-                    if "：" in reply:
-                        reply = reply.split("：", 1)[-1].strip()
-                    await context.bot.send_message(chat_id=chat_id, text=reply)
+                            reply = response_json.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+                            if "：" in reply:
+                                reply = reply.split("：", 1)[-1].strip()
+                            await context.bot.send_message(chat_id=chat_id, text=reply)
 
-                    # 将主动问候添加到聊天记录
-                    chat_histories[chat_id].append(f"Bot: {reply}")
-                    last_activity[chat_id] = datetime.now()  # 更新最后活动时间
-                    logger.info(f"问候已发送给 chat_id {chat_id}: {reply}")
-                except requests.exceptions.HTTPError as http_err:
-                    logger.error(f"发生HTTP错误: {http_err}")
-                except requests.exceptions.RequestException as req_err:
-                    logger.error(f"请求错误发生: {req_err}")
-                except json.JSONDecodeError as json_err:
-                    logger.error(f"JSON解码错误: {json_err}")
-                except Exception as err:
-                    logger.error(f"发生错误: {err}")
+                            # 将主动问候添加到聊天历史
+                            chat_histories[chat_id].append(f"Bot: {reply}")
+                            last_activity[chat_id] = datetime.now()  # 更新最后活动时间
+                            logger.info(f"向 chat_id {chat_id} 发送了问候: {reply}")
+                    except aiohttp.ClientResponseError as http_err:
+                        logger.error(f"HTTP 错误发生: {http_err}")
+                    except aiohttp.ClientError as req_err:
+                        logger.error(f"请求错误发生: {req_err}")
+                    except json.JSONDecodeError as json_err:
+                        logger.error(f"JSON 解码错误: {json_err}")
+                    except Exception as err:
+                        logger.error(f"发生错误: {err}")
 
 # 主函数
 def main() -> None:
@@ -475,11 +419,11 @@ def main() -> None:
     # 设置命令
     commands = [
         BotCommand("start", "启动机器人"),
-        BotCommand("use", "选择一个个性"),
+        BotCommand("use", "选择人格"),
         BotCommand("clear", "清除当前聊天记录"),
         BotCommand("time", "设置时区"),
         BotCommand("list", "列出和管理记忆"),
-        BotCommand("retry", "重试最后一个机器人响应")
+        BotCommand("retry", "重试最后一条消息")
     ]
     application.bot.set_my_commands(commands)
 
