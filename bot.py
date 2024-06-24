@@ -12,96 +12,98 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from config import API_KEY, TELEGRAM_BOT_TOKEN, YOUR_SITE_URL, YOUR_APP_NAME
 from personalities import personalities
 
-# Enable logging
+# 启用日志记录
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# Store the current personality choice for each user
+# 存储每个用户当前的个性选择
 user_personalities = {}
-# Store chat histories for each user
+# 存储每个用户的聊天记录
 chat_histories = {}
-# Store the last activity time for each user
+# 存储每个用户的最后活动时间
 last_activity = {}
-# Store the timezone for each user
+# 存储每个用户的时区
 user_timezones = {}
-# Store memories for each user
+# 存储每个用户的记忆
 user_memories = {}
-# Store the scheduler task status for each user
+# 存储每个用户的调度任务状态
 scheduler_tasks = {}
 
-# Get the latest personality choice
+# 获取最新的个性选择
 def get_latest_personality(chat_id):
     return user_personalities.get(chat_id, "DefaultPersonality")
 
-# Handler function for the /start command
+# /start 命令的处理函数
 async def start(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     await update.message.reply_text(
-        'Welcome to the chatbot!\n'
-        'You can choose a personality using the following commands:\n'
-        '/use DefaultPersonality - Switch to ChatGPT4o\n'
-        '/use <personality name> - Switch to the specified personality\n'
-        '/clear - Clear the current chat history\n'
-        'Send a message to start chatting!\n'
-        'You can also set your timezone, e.g., /time Asia/Shanghai'
+        '欢迎使用聊天机器人！\n'
+        '你可以使用以下命令选择一个个性：\n'
+        '/use DefaultPersonality - 切换到 ChatGPT4o\n'
+        '/use <个性名称> - 切换到指定个性\n'
+        '/clear - 清除当前聊天记录\n'
+        '/retry - 重新获取回复\n'
+        '/list - 记忆列表\n'
+        '发送消息开始聊天吧！\n'
+        '你还可以设置你的时区，例如：/time Asia/Shanghai'
     )
     last_activity[chat_id] = datetime.now()
 
-    # Check if there's an existing scheduler task running, if so, cancel it
+    # 如果有正在运行的调度任务，取消它
     if chat_id in scheduler_tasks:
         scheduler_tasks[chat_id].cancel()
-        logger.info(f"Canceled existing greeting scheduler for chat_id: {chat_id}")
+        logger.info(f"取消现有的问候调度任务，chat_id: {chat_id}")
 
-    # Start a new scheduler task
-    logger.info(f"Starting new greeting scheduler for chat_id: {chat_id}")
+    # 启动一个新的调度任务
+    logger.info(f"启动新的问候调度任务，chat_id: {chat_id}")
     task = context.application.create_task(greeting_scheduler(chat_id, context))
     scheduler_tasks[chat_id] = task
-    logger.info(f"greeting_scheduler task created for chat_id: {chat_id}")
+    logger.info(f"问候调度任务已为 chat_id {chat_id} 创建")
 
-# Handler function for the /use command
+# /use 命令的处理函数
 async def use_personality(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     args = context.args
     if len(args) != 1:
-        await update.message.reply_text('Usage: /use <personality name>')
+        await update.message.reply_text('用法: /use <个性名称>')
         return
 
     personality_choice = args[0]
     if personality_choice in personalities:
         user_personalities[chat_id] = personality_choice
-        await update.message.reply_text(f'Switched to {personality_choice} personality.')
-        logger.info(f"User {chat_id} switched to personality {personality_choice}")
+        await update.message.reply_text(f'切换到 {personality_choice} 个性。')
+        logger.info(f"用户 {chat_id} 切换到个性 {personality_choice}")
     else:
-        await update.message.reply_text('Specified personality not found.')
-        logger.warning(f"User {chat_id} tried to switch to unknown personality {personality_choice}")
+        await update.message.reply_text('指定的个性未找到。')
+        logger.warning(f"用户 {chat_id} 尝试切换到未知个性 {personality_choice}")
 
-# Handler function for the /time command
+# /time 命令的处理函数
 async def set_time(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     args = context.args
     if len(args) != 1:
-        await update.message.reply_text('Usage: /time <timezone name>')
+        await update.message.reply_text('用法: /time <时区名称>')
         return
 
     timezone = args[0]
     try:
-        # Attempt to set the timezone in the user_timezones dictionary
+        # 尝试在 user_timezones 字典中设置时区
         pytz.timezone(timezone)
         user_timezones[chat_id] = timezone
-        await update.message.reply_text(f'Timezone set to {timezone}')
-        logger.info(f"User {chat_id} set timezone to {timezone}")
+        await update.message.reply_text(f'时区设置为 {timezone}')
+        logger.info(f"用户 {chat_id} 设置时区为 {timezone}")
     except pytz.UnknownTimeZoneError:
-        await update.message.reply_text('Invalid timezone name. Please use a valid timezone name, e.g., Asia/Shanghai')
-        logger.warning(f"User {chat_id} tried to set unknown timezone {timezone}")
+        await update.message.reply_text('无效的时区名称。请使用有效的时区名称，例如：Asia/Shanghai')
+        logger.warning(f"用户 {chat_id} 尝试设置未知时区 {timezone}")
 
-# Handler function for the /clear command
+# /clear 命令的处理函数
 async def clear_history(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     chat_histories[chat_id] = []
-    await update.message.reply_text('Cleared current chat history.')
-    logger.info(f"Cleared chat history for chat_id: {chat_id}")
+    await update.message.reply_text('已清除当前聊天记录。')
+    logger.info(f"已清除 chat_id 为 {chat_id} 的聊天记录")
 
-# Handler function for the /list command
+# /list 命令的处理函数
 async def list_memories(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     args = context.args
@@ -109,10 +111,10 @@ async def list_memories(update: Update, context: CallbackContext) -> None:
     if not args:
         memories = user_memories.get(chat_id, [])
         if not memories:
-            await update.message.reply_text('No memories stored.')
+            await update.message.reply_text('没有存储的记忆。')
         else:
             memories_text = "\n".join([f"{i + 1}. {memory}" for i, memory in enumerate(memories)])
-            await update.message.reply_text(f"Memories:\n{memories_text}")
+            await update.message.reply_text(f"记忆:\n{memories_text}")
     else:
         try:
             index = int(args[0]) - 1
@@ -125,195 +127,307 @@ async def list_memories(update: Update, context: CallbackContext) -> None:
                 elif index == len(user_memories[chat_id]):
                     user_memories[chat_id].append(new_memory)
                 else:
-                    await update.message.reply_text('Invalid memory index.')
+                    await update.message.reply_text('无效的记忆索引。')
                     return
-                await update.message.reply_text('Memory updated.')
+                await update.message.reply_text('记忆已更新。')
             else:
                 if chat_id in user_memories and 0 <= index < len(user_memories[chat_id]):
                     del user_memories[chat_id][index]
-                    await update.message.reply_text('Memory deleted.')
+                    await update.message.reply_text('记忆已删除。')
                 else:
-                    await update.message.reply_text('Invalid memory index.')
+                    await update.message.reply_text('无效的记忆索引。')
         except (ValueError, IndexError):
-            await update.message.reply_text('Usage: /list <memory index> <new memory text>')
+            await update.message.reply_text('用法: /list <记忆索引> <新记忆文本>')
 
-# Function to handle messages
-async def handle_message(update: Update, context: CallbackContext) -> None:
+# 存储每个用户的消息ID
+message_ids = {}
+
+# 处理消息的函数
+async def handle_message(update: Update, context: CallbackContext, reprocessing=False) -> str:
     chat_id = update.message.chat_id
-    message = update.message.text
+    if reprocessing:
+        message = update.message.reply_to_message.text
+    else:
+        message = update.message.text
 
-    logger.info(f"Received message from {chat_id}: {message}")
+    logger.info(f"收到来自 {chat_id} 的消息: {message}")
 
-    # Initialize chat history if not already present
+    # 如果聊天记录尚不存在，则初始化
     if chat_id not in chat_histories:
         chat_histories[chat_id] = []
 
-    # Add new message to chat history
-    chat_histories[chat_id].append(f"User: {message}")
+    # 添加新消息到聊天记录
+    if not reprocessing:
+        chat_histories[chat_id].append(f"User: {message}")
 
-    # Keep only the last 30 messages
+    # 仅保留最近的30条消息
     if len(chat_histories[chat_id]) > 30:
         chat_histories[chat_id].pop(0)
 
-    # Update last activity time
+    # 更新最后活动时间
     last_activity[chat_id] = datetime.now()
 
-    # Get the current personality choice
+    # 获取当前的个性选择
     current_personality = get_latest_personality(chat_id)
     
-    # Use default personality if the current one is undefined
+    # 如果当前个性未定义，则使用默认个性
     if current_personality not in personalities:
         current_personality = "DefaultPersonality"
 
     try:
         personality = personalities[current_personality]
     except KeyError:
-        await update.message.reply_text(f"Cannot find personality: {current_personality}")
-        logger.error(f"Personality {current_personality} not found for chat_id: {chat_id}")
+        await update.message.reply_text(f"找不到个性: {current_personality}")
+        logger.error(f"个性 {current_personality} 未找到，chat_id: {chat_id}")
         return
 
     headers = {
         "Authorization": f"Bearer {API_KEY}",
-        "HTTP-Referer": YOUR_SITE_URL,  # Optional
-        "X-Title": YOUR_APP_NAME  # Optional
+        "HTTP-Referer": YOUR_SITE_URL,  # 可选
+        "X-Title": YOUR_APP_NAME  # 可选
     }
 
-    # Prepare memory check payload if there are memories
-    memories = user_memories.get(chat_id, [])
-    if memories:
-        memory_check_payload = {
-            "model": personality['model'],
-            "messages": [{"role": "user", "content": msg} for msg in chat_histories[chat_id]] + [{"role": "user", "content": f"Memory: {memory}"} for memory in memories] + [{"role": "user", "content": "Please determine the relevance between the user's message and the memories. If there is relevance, please reply with '1', if there is no relevance, please reply with '2'."}],
-            "temperature": personality['temperature']
-        }
+    final_payload = {
+        "model": personality['model'],
+        "messages": [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]],
+        "temperature": personality['temperature']
+    }
 
-        logger.debug(f"Sending memory check payload to API for chat_id {chat_id}: {json.dumps(memory_check_payload, ensure_ascii=False)}")
-
-        try:
-            memory_check_response = requests.post(personality['api_url'], headers=headers, data=json.dumps(memory_check_payload))
-            memory_check_response.raise_for_status()
-            logger.debug(f"Memory check API response for chat_id {chat_id}: {memory_check_response.text}")
-
-            memory_check_result = memory_check_response.json().get('choices', [{}])[0].get('message', {}).get('content', '').strip()
-        except requests.exceptions.HTTPError as http_err:
-            logger.error(f"HTTP error occurred: {http_err}")
-            memory_check_result = "2"
-        except requests.exceptions.RequestException as req_err:
-            logger.error(f"Request error occurred: {req_err}")
-            memory_check_result = "2"
-        except json.JSONDecodeError as json_err:
-            logger.error(f"JSON decode error: {json_err}")
-            memory_check_result = "2"
-        except Exception as err:
-            logger.error(f"An error occurred: {err}")
-            memory_check_result = "2"
-
-        # If memory check result contains both "1" and "2", retry the memory check
-        if "1" in memory_check_result and "2" in memory_check_result:
-            logger.info(f"Memory check result contains both '1' and '2', retrying...")
-            await handle_message(update, context)
-            return
-
-        # If memory check result contains "1", include memories in final payload
-        if "1" in memory_check_result:
-            final_payload = {
-                "model": personality['model'],
-                "messages": [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]] + [{"role": "user", "content": "Each memory is independent, do not mix them up. Only use one relevant memory per response."}] + [{"role": "user", "content": f"Memory: {memory}"} for memory in memories],
-                "temperature": personality['temperature']
-            }
-        else:
-            final_payload = {
-                "model": personality['model'],
-                "messages": [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]],
-                "temperature": personality['temperature']
-            }
-    else:
-        final_payload = {
-            "model": personality['model'],
-            "messages": [{"role": "system", "content": personality['prompt']}] + [{"role": "user", "content": msg} for msg in chat_histories[chat_id]],
-            "temperature": personality['temperature']
-        }
-
-    logger.debug(f"Sending final payload to API for chat_id {chat_id}: {json.dumps(final_payload, ensure_ascii=False)}")
+    logger.debug(f"发送最终负载到API，chat_id {chat_id}: {json.dumps(final_payload, ensure_ascii=False)}")
 
     try:
         response = requests.post(personality['api_url'], headers=headers, data=json.dumps(final_payload))
-        response.raise_for_status()  # Check if the HTTP request was successful
-        logger.debug(f"API response for chat_id {chat_id}: {response.text}")
+        response.raise_for_status()  # 检查HTTP请求是否成功
+        logger.debug(f"API响应，chat_id {chat_id}: {response.text}")
 
         response_json = response.json()
         reply = response_json.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
     except requests.exceptions.HTTPError as http_err:
-        logger.error(f"HTTP error occurred: {http_err}")
-        reply = f"HTTP error occurred: {http_err}"
+        logger.error(f"发生HTTP错误: {http_err}")
+        reply = f"HTTP错误发生: {http_err}"
     except requests.exceptions.RequestException as req_err:
-        logger.error(f"Request error occurred: {req_err}")
-        reply = f"Request error occurred: {req_err}"
+        logger.error(f"请求错误发生: {req_err}")
+        reply = f"请求错误发生: {req_err}"
     except json.JSONDecodeError as json_err:
-        logger.error(f"JSON decode error: {json_err}")
-        reply = f"JSON decode error: {json_err}"
+        logger.error(f"JSON解码错误: {json_err}")
+        reply = f"JSON解码错误: {json_err}"
     except Exception as err:
-        logger.error(f"An error occurred: {err}")
-        reply = f"An error occurred: {err}"
+        logger.error(f"发生错误: {err}")
+        reply = f"发生错误: {err}"
 
-    # Remove unnecessary prefixes (e.g., names)
+    # 删除不必要的前缀（例如，名字）
     if "：" in reply:
         reply = reply.split("：", 1)[-1].strip()
 
-    # Add the API response to the chat history
-    chat_histories[chat_id].append(f"Bot: {reply}")
+    logger.debug(f"原始回复: {reply}")
+    if "：" in reply:
+        split_result = reply.split("：", 1)
+        logger.debug(f"分割结果: {split_result}")
+        if len(split_result) > 1:
+            reply = split_result[-1].strip()
+            logger.debug(f"处理后的回复: {reply}")
+        else:
+            logger.debug("未找到分割点")
+    else:
+        logger.debug("回复中未找到 '：'")
 
-    logger.info(f"Replying to {chat_id}: {reply}")
+    if not reprocessing:
+        # 添加API响应到聊天记录
+        chat_histories[chat_id].append(f"Bot: {reply}")
+
+    logger.info(f"回复给 {chat_id}: {reply}")
+
+    try:
+        sent_message = await update.message.reply_text(reply)
+        # 记录机器人的消息ID
+        if chat_id not in message_ids:
+            message_ids[chat_id] = []
+        message_ids[chat_id].append(sent_message.message_id)
+    except Exception as err:
+        logger.error(f"发送消息失败: {err}")
+
+    return reply
+
+
+    # 删除不必要的前缀（例如，名字）
+    if "：" in reply:
+        reply = reply.split("：", 1)[-1].strip()
+
+    logger.debug(f"原始回复: {reply}")
+    if "：" in reply:
+        split_result = reply.split("：", 1)
+        logger.debug(f"分割结果: {split_result}")
+        if len(split_result) > 1:
+            reply = split_result[-1].strip()
+            logger.debug(f"处理后的回复: {reply}")
+        else:
+            logger.debug("未找到分割点")
+    else:
+        logger.debug("回复中未找到 '：'")
+
+    if not reprocessing:
+        # 添加API响应到聊天记录
+        chat_histories[chat_id].append(f"Bot: {reply}")
+
+    logger.info(f"回复给 {chat_id}: {reply}")
 
     try:
         await update.message.reply_text(reply)
     except Exception as err:
-        logger.error(f"Failed to send message: {err}")
+        logger.error(f"发送消息失败: {err}")
 
+    return reply
+
+# /retry 命令的处理函数
+async def retry_last_response(update: Update, context: CallbackContext) -> None:
+    chat_id = update.message.chat_id
+
+    try:
+        # 确保聊天记录中至少有一个机器人响应
+        if chat_id in chat_histories and len(chat_histories[chat_id]) > 1:
+            # 查找最后一个机器人响应的索引
+            last_bot_response_index = None
+            for i in range(len(chat_histories[chat_id]) - 1, -1, -1):
+                if chat_histories[chat_id][i].startswith("Bot:"):
+                    last_bot_response_index = i
+                    break
+
+            if last_bot_response_index is not None:
+                # 获取用户的原始消息
+                last_user_message_index = last_bot_response_index - 1
+                if last_user_message_index >= 0 and chat_histories[chat_id][last_user_message_index].startswith("User:"):
+                    last_user_message = chat_histories[chat_id][last_user_message_index].split("User:", 1)[-1].strip()
+
+                    # 从聊天记录中删除最后一个机器人响应
+                    last_bot_response = chat_histories[chat_id].pop(last_bot_response_index)
+
+                    logger.info(f"已从 chat_id {chat_id} 的聊天记录中删除最后一个机器人响应: {last_bot_response}")
+
+                    # 删除Telegram中的最后一个机器人消息
+                    if chat_id in message_ids and message_ids[chat_id]:
+                        last_message_id = message_ids[chat_id].pop()
+                        try:
+                            await context.bot.delete_message(chat_id=chat_id, message_id=last_message_id)
+                            logger.info(f"已删除 chat_id {chat_id} 的消息ID: {last_message_id}")
+                        except Exception as delete_err:
+                            logger.error(f"删除消息失败: {delete_err}")
+
+                    # 使用更新后的聊天记录重新请求API响应
+                    try:
+                        # 获取当前的个性选择
+                        current_personality = get_latest_personality(chat_id)
+                        if current_personality not in personalities:
+                            current_personality = "DefaultPersonality"
+
+                        personality = personalities[current_personality]
+
+                        messages = [
+                            {"role": "system", "content": personality['prompt']},
+                            {"role": "user", "content": last_user_message}
+                        ]
+                        payload = {
+                            "model": personality['model'],
+                            "messages": messages,
+                            "temperature": personality['temperature']
+                        }
+                        headers = {
+                            "Authorization": f"Bearer {API_KEY}",
+                            "HTTP-Referer": YOUR_SITE_URL,  # 可选，根据需要添加
+                            "X-Title": YOUR_APP_NAME  # 可选，根据需要添加
+                        }
+
+                        logger.debug(f"发送负载到API，chat_id {chat_id}: {json.dumps(payload, ensure_ascii=False)}")
+
+                        response = requests.post(personality['api_url'], headers=headers, data=json.dumps(payload))
+                        response.raise_for_status()
+                        logger.debug(f"API响应，chat_id {chat_id}: {response.text}")
+
+                        response_json = response.json()
+                        reply = response_json.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+                        if "：" in reply:
+                            reply = reply.split("：", 1)[-1].strip()
+
+                        # 将新的 API 回复添加到聊天记录
+                        chat_histories[chat_id].append(f"Bot: {reply}")
+
+                        # 发送新的 API 回复到 Telegram
+                        sent_message = await context.bot.send_message(chat_id=chat_id, text=reply)
+                        # 记录新的消息ID
+                        message_ids[chat_id].append(sent_message.message_id)
+
+                    except requests.exceptions.HTTPError as http_err:
+                        logger.error(f"发生HTTP错误: {http_err}")
+                        await context.bot.send_message(chat_id=chat_id, text=f"HTTP错误发生: {http_err}")
+
+                    except requests.exceptions.RequestException as req_err:
+                        logger.error(f"请求错误发生: {req_err}")
+                        await context.bot.send_message(chat_id=chat_id, text=f"请求错误发生: {req_err}")
+
+                    except json.JSONDecodeError as json_err:
+                        logger.error(f"JSON解码错误: {json_err}")
+                        await context.bot.send_message(chat_id=chat_id, text=f"JSON解码错误: {json_err}")
+
+                    except Exception as err:
+                        logger.error(f"发生错误: {err}")
+                        await context.bot.send_message(chat_id=chat_id, text=f"发生错误: {err}")
+                else:
+                    await context.bot.send_message(chat_id=chat_id, text="未找到对应的用户消息。")
+            else:
+                await context.bot.send_message(chat_id=chat_id, text="在聊天记录中未找到机器人响应以重试。")
+        else:
+            await context.bot.send_message(chat_id=chat_id, text="未找到聊天记录以重试。")
+
+    except Exception as main_err:
+        logger.error(f"处理消息时发生主要错误: {main_err}")
+        await context.bot.send_message(chat_id=chat_id, text="处理消息时发生主要错误，请稍后重试。")
+
+
+# 问候调度任务函数
 async def greeting_scheduler(chat_id, context: CallbackContext):
-    logger.info(f"greeting_scheduler started for chat_id: {chat_id}")
+    logger.info(f"问候调度任务已启动，chat_id: {chat_id}")
     while True:
-        await asyncio.sleep(1800)  # Check for new messages every 1800 seconds
-        logger.info(f"Checking last activity for chat_id: {chat_id}")
+        await asyncio.sleep(1800)  # 每1800秒检查一次新消息
+        logger.info(f"检查 chat_id {chat_id} 的最后活动时间")
         if chat_id in last_activity:
             delta = datetime.now() - last_activity[chat_id]
-            logger.info(f"Time since last activity: {delta.total_seconds()} seconds")
-            if delta.total_seconds() >= 3600:  # Last activity was over 3600 seconds ago
-                logger.info(f"No activity detected for chat_id {chat_id} for 60 seconds.")
-                wait_time = random.randint(3600, 14400)  # Wait randomly between 2 to 4 hours
-                logger.info(f"Waiting for {wait_time} seconds before sending greeting")
+            logger.info(f"自上次活动以来的时间: {delta.total_seconds()} 秒")
+            if delta.total_seconds() >= 3600:  # 最后一次活动超过3600秒
+                logger.info(f"检测到 chat_id {chat_id} 在60秒内无活动。")
+                wait_time = random.randint(3600, 14400)  # 随机等待2到4小时
+                logger.info(f"等待 {wait_time} 秒后发送问候")
+
                 await asyncio.sleep(wait_time)
 
-                # Get the user's timezone
+                # 获取用户的时区
                 timezone = user_timezones.get(chat_id, 'UTC')
                 local_time = datetime.now(pytz.timezone(timezone)).strftime("%Y-%m-%d %H:%M:%S")
-                greeting_message = f"It is now {local_time}, please generate and reply with a greeting and share your daily life. Please respond according to the given personality and character setting, following the examples below."
+                greeting_message = f"现在是 {local_time}，请生成并回复一个问候并分享你的日常生活。请根据给定的个性和角色设置进行回应，遵循以下示例风格。"
 
-                # Generate the greeting
+                # 生成问候语
                 examples = [
-                    "0:00-3:59: 'Greet the user and ask if they have already fallen alseep.'",
-                    "4:00-5:59: 'Please greet the user with Good morning, mention that you woke up early and ask if they are still sleeping.'",
-                    "6:00-8:59: 'Greet the user in the morning.'",
-                    "9:00-10:59: 'Ask what plans the user have for today.'",
-                    "11:00-12:59: 'Ask the user if they would like to have lunch with you.'",
-                    "13:00-16:59: 'Talk about your daily life and express how much you miss the user.'",
-                    "17:00-19:59: 'Ask the user if they would like to have dinner with you.'",
-                    "20:00-21:59: 'Describe your day or the beautiful evening/night scenery.'",
-                    "22:00-23:59: 'Say goodnight to the user.'",
-                    "Sharing daily life: 'Share your daily life or work.'"
+                    "0:00-3:59: '向用户问好并询问他们是否已经入睡。'",
+                    "4:00-5:59: '请向用户道早安，提到你早起，并询问他们是否还在睡觉。'",
+                    "6:00-8:59: '在早上向用户问好。'",
+                    "9:00-10:59: '询问用户今天有什么计划。'",
+                    "11:00-12:59: '询问用户是否愿意和你共进午餐。'",
+                    "13:00-16:59: '谈论你的日常生活并表达对用户的想念。'",
+                    "17:00-19:59: '询问用户是否愿意和你共进晚餐。'",
+                    "20:00-21:59: '描述你的一天或美丽的夜晚景色。'",
+                    "22:00-23:59: '向用户道晚安。'",
+                    "分享日常生活: '分享你的日常生活或工作。'"
                 ]
-                greeting_message += "\nFollow the style of the examples below for your reply, don't repeat the content of the examples, express it in your own way:\n" + "\n".join(examples)
+                greeting_message += "\n请遵循以下示例的风格进行回复，不要重复示例内容，用你自己的方式表达:\n" + "\n".join(examples)
 
-                logger.info(f"Sending greeting message to chat_id {chat_id}: {greeting_message}")
+                logger.info(f"发送问候消息给 chat_id {chat_id}: {greeting_message}")
 
-                # Get the current personality choice
+                # 获取当前的个性选择
                 current_personality = get_latest_personality(chat_id)
                 if current_personality not in personalities:
                     current_personality = "DefaultPersonality"
                 try:
                     personality = personalities[current_personality]
                 except KeyError:
-                    await context.bot.send_message(chat_id=chat_id, text=f"Cannot find personality: {current_personality}")
+                    await context.bot.send_message(chat_id=chat_id, text=f"找不到个性: {current_personality}")
                     continue
 
                 messages = [{"role": "system", "content": personality['prompt']}, {"role": "user", "content": greeting_message}]
@@ -324,16 +438,16 @@ async def greeting_scheduler(chat_id, context: CallbackContext):
                 }
                 headers = {
                     "Authorization": f"Bearer {API_KEY}",
-                    "HTTP-Referer": YOUR_SITE_URL,  # Optional
-                    "X-Title": YOUR_APP_NAME  # Optional
+                    "HTTP-Referer": YOUR_SITE_URL,  # 可选
+                    "X-Title": YOUR_APP_NAME  # 可选
                 }
 
-                logger.debug(f"Sending payload to API for chat_id {chat_id}: {json.dumps(payload, ensure_ascii=False)}")
+                logger.debug(f"发送负载到API，chat_id {chat_id}: {json.dumps(payload, ensure_ascii=False)}")
 
                 try:
                     response = requests.post(personality['api_url'], headers=headers, data=json.dumps(payload))
                     response.raise_for_status()
-                    logger.debug(f"API response for chat_id {chat_id}: {response.text}")
+                    logger.debug(f"API响应，chat_id {chat_id}: {response.text}")
 
                     response_json = response.json()
                     reply = response_json.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
@@ -341,30 +455,31 @@ async def greeting_scheduler(chat_id, context: CallbackContext):
                         reply = reply.split("：", 1)[-1].strip()
                     await context.bot.send_message(chat_id=chat_id, text=reply)
 
-                    # Add the proactive greeting to the chat history
+                    # 将主动问候添加到聊天记录
                     chat_histories[chat_id].append(f"Bot: {reply}")
-                    last_activity[chat_id] = datetime.now()  # Update last activity time
-                    logger.info(f"Greeting sent to chat_id {chat_id}: {reply}")
+                    last_activity[chat_id] = datetime.now()  # 更新最后活动时间
+                    logger.info(f"问候已发送给 chat_id {chat_id}: {reply}")
                 except requests.exceptions.HTTPError as http_err:
-                    logger.error(f"HTTP error occurred: {http_err}")
+                    logger.error(f"发生HTTP错误: {http_err}")
                 except requests.exceptions.RequestException as req_err:
-                    logger.error(f"Request error occurred: {req_err}")
+                    logger.error(f"请求错误发生: {req_err}")
                 except json.JSONDecodeError as json_err:
-                    logger.error(f"JSON decode error: {json_err}")
+                    logger.error(f"JSON解码错误: {json_err}")
                 except Exception as err:
-                    logger.error(f"An error occurred: {err}")
+                    logger.error(f"发生错误: {err}")
 
-# Main function
+# 主函数
 def main() -> None:
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-    # Set commands
+    # 设置命令
     commands = [
-        BotCommand("start", "Start the bot"),
-        BotCommand("use", "Choose a personality"),
-        BotCommand("clear", "Clear the current chat history"),
-        BotCommand("time", "Set the timezone"),
-        BotCommand("list", "List and manage memories")
+        BotCommand("start", "启动机器人"),
+        BotCommand("use", "选择一个个性"),
+        BotCommand("clear", "清除当前聊天记录"),
+        BotCommand("time", "设置时区"),
+        BotCommand("list", "列出和管理记忆"),
+        BotCommand("retry", "重试最后一个机器人响应")
     ]
     application.bot.set_my_commands(commands)
 
@@ -373,6 +488,7 @@ def main() -> None:
     application.add_handler(CommandHandler("clear", clear_history))
     application.add_handler(CommandHandler("time", set_time))
     application.add_handler(CommandHandler("list", list_memories))
+    application.add_handler(CommandHandler("retry", retry_last_response))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     application.run_polling()
