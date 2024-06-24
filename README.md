@@ -1,145 +1,112 @@
-## Chatbot Telegram Bot
+# 扮演project
+欢迎来到 扮演project 仓库！这个机器人允许用户与各种人格互动，设置时区，管理聊天记录等。它还具有问候调度功能，保持对话的活跃性。
 
-This is a Python-based Telegram bot that provides chat functionalities with various personalities. The bot allows users to switch personalities, manage chat histories, and set timezones.
+## 功能
 
-## Features
+- **动态人格**：选择不同的人格以增强聊天体验。
+- **记忆管理**：机器人可以记住之前的互动，并使用这些信息提供相关的回应。
+- **时区设置**：设置您的时区以接收及时的问候和消息。
+- **重试机制**：如果需要，可以重试最后的回应。
+- **定时问候**：根据用户的活动和时区，机器人会定期发送问候消息。
 
-- Switch between different personalities.
-- Clear chat history.
-- Set timezone.
-- List and manage memories.
-- Proactive greeting scheduler.
+## 命令
 
-## Requirements
-
-- Python 3.6+
-- Configuration file `config.py` containing the following variables:
-  - `API_KEY`
-  - `TELEGRAM_BOT_TOKEN`
-  - `YOUR_SITE_URL` #Optional
-  - `YOUR_APP_NAME` #Optional
-- Personalities file `personalities.py` containing the personality definitions.
-
-## Installation
-
-1. Clone the repository:
-
-    ```bash
-   git clone https://github.com/AileenAugustus/TelegramChatBOT.git
-   cd TelegramChatBOT
-
-    ```
-
-2. Install the required libraries using `requirements.txt`:
-
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-3. Create and configure `config.py` with your API keys and other configurations:
-
-    ```python
-    # config.py
-    API_KEY = 'your_api_key_here'
-    TELEGRAM_BOT_TOKEN = 'your_telegram_bot_token_here'
-    YOUR_SITE_URL = 'your_site_url_here' #Optional
-    YOUR_APP_NAME = 'your_app_name_here' #Optional
-    ```
-
-4. Create and configure `personalities.py` with the personality definitions.
-
-## Usage
-
-Run the bot:
-
-```bash
-python bot.py
+### 启动机器人
 ```
+/start
+```
+启动机器人，并提供使用说明。
 
-## Bot Commands
+### 使用特定人格
+```
+/use <personality name>
+```
+切换到指定的人格，获得更有趣的对话体验。
 
-- `/start`: Start the bot and show the welcome message.
-- `/use <personality name>`: Switch to the specified personality.
-- `/clear`: Clear the current chat history.
-- `/time <timezone name>`: Set the timezone.
-- `/list`: List and manage memories.
+### 清除聊天记录
+```
+/clear
+```
+清除当前的聊天记录。
 
-## `/list` Command
+### 设置时区
+```
+/time <timezone name>
+```
+设置您的时区（例如 `Asia/Shanghai`），以接收合适的问候消息。
 
-The `/list` command allows users to list and manage their memories. Here are the detailed usages:
+### 列出和管理记忆
+```
+/list
+```
+列出所有存储的记忆。
 
-### List Memories
+```
+/list <index> <new memory text>
+```
+通过索引更新或删除特定记忆。
 
-### Update a Memory
+### 重试最后的回应
+```
+/retry
+```
+重试最后的机器人回应，以防发生错误。
 
-- You can update a specific memory by providing the memory index and the new memory text.
-  
-  **Usage:**
-  
-  ```plaintext
-  /list <memory index> <new memory text>
-  ```
+## 安装
 
-  **Example:**
-  
-  ```plaintext
-  /list 1 This is the updated memory text for memory 1.
-  ```
-  
-### Add a New Memory
+1. **克隆仓库**
+   ```bash
+   git clone https://github.com/yourusername/Chatbot-Telegram-Bot.git
+   cd Chatbot-Telegram-Bot
+   ```
 
-- If you provide an index equal to the current number of memories + 1, a new memory will be added.
-  
-  **Usage:**
-  
-  ```plaintext
-  /list <next memory index> <new memory text>
-  ```
+2. **安装依赖**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-  **Example:**
-  
-  ```plaintext
-  /list 4 This is a new memory.
-  ```
-  
-### Delete a Memory
+3. **配置**
+   在根目录创建一个 `config.py` 文件，内容如下：
+   ```python
+   API_KEY = 'your_openai_api_key'
+   TELEGRAM_BOT_TOKEN = 'your_telegram_bot_token'
+   YOUR_SITE_URL = 'your_site_url'
+   YOUR_APP_NAME = 'your_app_name'
+   ```
+   在根目录创建一个 `personalities.py` 文件，内容如下：
+   ```python
+   personalities = {
+       "DefaultPersonality": {
+           "model": "gpt-3.5-turbo",
+           "prompt": "You are ChatGPT, a helpful assistant.",
+           "temperature": 0.7,
+           "api_url": "https://api.openai.com/v1/engines/gpt-3.5-turbo/completions"
+       },
+       # 在这里添加其他人格
+   }
+   ```
 
-- You can delete a specific memory by providing the memory index and no additional text.
-  
-  **Usage:**
-  
-  ```plaintext
-  /list <memory index>
-  ```
-  
-## Code Explanation
+4. **运行机器人**
+   ```bash
+   python bot.py
+   ```
 
-### Main Function
+## 日志记录
 
-The `main` function initializes the bot, sets commands, and adds handlers for different commands and messages.
+启用日志记录以跟踪机器人的活动和错误。日志以不同级别（INFO、DEBUG、WARNING、ERROR）打印到控制台。
 
-### Command Handlers
+## 贡献
 
-- `start`: Sends a welcome message and starts the greeting scheduler.
-- `use_personality`: Switches to the specified personality.
-- `set_time`: Sets the user's timezone.
-- `clear_history`: Clears the chat history.
-- `list_memories`: Lists and manages memories.
+欢迎贡献！请随时提交拉取请求或打开问题，以讨论改进或错误。
 
-### Message Handler
+## 许可证
 
-The `handle_message` function processes incoming messages, updates chat history, and sends requests to the API based on the selected personality.
+此项目根据 MIT 许可证授权。有关详细信息，请参阅 [LICENSE](LICENSE) 文件。
 
-### Greeting Scheduler
+## 联系方式
 
-The `greeting_scheduler` function sends greetings based on the user's last activity and timezone.
-
-## Logging
-
-The bot uses Python's `logging` module to log messages for debugging and monitoring purposes.
-
-## Contributions
-
-Feel free to open issues and submit pull requests.
+如有任何问题或建议，请随时联系仓库所有者或打开问题。
 
 ---
+
+感谢您使用 Chatbot Telegram Bot！希望您享受增强的聊天体验。
