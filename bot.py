@@ -209,6 +209,17 @@ async def handle_message(update: Update, context: CallbackContext) -> None:
     # 更新最后活动时间
     last_activity[chat_id] = datetime.now()
 
+    # 取消当前的调度任务
+    if chat_id in scheduler_tasks:
+        scheduler_tasks[chat_id].cancel()
+        logger.info(f"取消了 chat_id: {chat_id} 的现有问候调度任务")
+
+    # 启动一个新的调度任务
+    logger.info(f"为 chat_id: {chat_id} 启动新的问候调度任务")
+    task = context.application.create_task(greeting_scheduler(chat_id, context))
+    scheduler_tasks[chat_id] = task
+    logger.info(f"为 chat_id: {chat_id} 创建了 greeting_scheduler 任务")
+
     await process_message(chat_id, message, update.message, context)
 
 # 处理消息的函数，包括记忆检查
@@ -348,15 +359,15 @@ async def greeting_scheduler(chat_id, context: CallbackContext):
 
                 # 生成问候
                 examples = [
-                    "0:00-3:59: '向用户问好，并询问他们是否还醒着。'",
-                    "4:00-5:59: '请向用户说早上好，并提到你早起了。'",
-                    "6:00-8:59: '在早上向用户问好。'",
-                    "9:00-10:59: '向用户问好，并询问他们今天有什么计划。'",
-                    "11:00-12:59: '询问用户是否想一起吃午饭。'",
-                    "13:00-16:59: '谈谈你的工作，并表达你对用户的思念。'",
-                    "17:00-19:59: '询问用户是否想一起吃晚饭。'",
-                    "20:00-21:59: '描述你的一天或美丽的晚景，并询问用户的一天。'",
-                    "22:00-23:59: '向用户说晚安。'",
+                    "0:00am-3:59am: '向用户问好，并询问他们是否还醒着。'",
+                    "4:00am-5:59am: '请向用户说早上好，并提到你早起了。'",
+                    "6:00am-8:59am: '在早上向用户问好。'",
+                    "9:00am-10:59am: '向用户问好，并询问他们今天有什么计划。'",
+                    "11:00am-12:59pm: '询问用户是否想一起吃午饭。'",
+                    "1:00pm-4:59pm: '谈谈你的工作，并表达你对用户的思念。'",
+                    "5:00pm-7:59pm: '询问用户是否想一起吃晚饭。'",
+                    "8:00pm-9:59pm: '描述你的一天或美丽的晚景，并询问用户的一天。'",
+                    "10:00pm-11:59pm: '向用户说晚安。'",
                     "分享日常生活: '分享你的日常生活或工作。'"
                 ]
                 greeting_message += "\n按照示例的风格进行回复，不要重复示例的内容，用你自己的方式表达：\n" + "\n".join(examples)
