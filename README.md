@@ -56,8 +56,9 @@
 
 1. **克隆仓库**
    ```bash
-   git clone https://github.com/yourusername/Chatbot-Telegram-Bot.git
-   cd Chatbot-Telegram-Bot
+   git clone https://github.com/AileenAugustus/RPproject-AtelegramChatBOT.git
+   cd RPproject-AtelegramChatBOT
+
    ```
 
 2. **安装依赖**
@@ -66,24 +67,16 @@
    ```
 
 3. **配置**
-   在根目录创建一个 `config.py` 文件，内容如下：
+   在根目录找到 `config.py` 文件，填入相应内容：
    ```python
    API_KEY = 'your_openai_api_key'
    TELEGRAM_BOT_TOKEN = 'your_telegram_bot_token'
-   YOUR_SITE_URL = 'your_site_url'
-   YOUR_APP_NAME = 'your_app_name'
+   YOUR_SITE_URL = 'your_site_url'#可选
+   YOUR_APP_NAME = 'your_app_name'#可选
    ```
-   在根目录创建一个 `personalities.py` 文件，内容如下：
+   在根目录找到 `personalities.py` 文件，内容如下：
    ```python
-   personalities = {
-       "DefaultPersonality": {
-           "model": "gpt-3.5-turbo",
-           "prompt": "You are ChatGPT, a helpful assistant.",
-           "temperature": 0.7,
-           "api_url": "https://api.openai.com/v1/engines/gpt-3.5-turbo/completions"
-       },
-       # 在这里添加其他人格
-   }
+       # 在这里添加人格
    ```
 
 4. **运行机器人**
@@ -101,7 +94,7 @@
 
 ## 许可证
 
-此项目根据 MIT 许可证授权。有关详细信息，请参阅 [LICENSE](LICENSE) 文件。
+此项目根据 MIT 许可证授权。
 
 ## 联系方式
 
