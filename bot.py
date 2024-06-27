@@ -1,14 +1,12 @@
-# -*- coding: utf-8 -*-
-
 import logging
 import aiohttp
 import json
 import asyncio
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 from telegram import Update, BotCommand
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, JobQueue
 from config import API_KEY, TELEGRAM_BOT_TOKEN, YOUR_SITE_URL, YOUR_APP_NAME
 from personalities import personalities
 
@@ -30,6 +28,8 @@ user_memories = {}
 scheduler_tasks = {}
 # 存储每个用户的消息ID
 message_ids = {}
+# 存储每个用户的提醒信息
+user_reminders = {}
 
 # 获取最新的人格选择
 def get_latest_personality(chat_id):
@@ -46,7 +46,8 @@ async def start(update: Update, context: CallbackContext) -> None:
         '/clear - 清除当前的聊天记录\n'
         '发送消息开始聊天吧！\n'
         '你也可以设置你的时区，例如 /time Asia/Shanghai\n'
-        '使用/retry重新发送最后一条消息'
+        '使用/retry重新发送最后一条消息\n'
+        '使用/clock <时间> <提醒内容> - 设置提醒，格式为 "HH:MM 提醒内容"'
     )
     last_activity[chat_id] = datetime.now()
 
@@ -337,6 +338,124 @@ async def process_message(chat_id, message, telegram_message, context):
     except Exception as err:
         logger.error(f"发送消息失败: {err}")
 
+# /clock 命令的处理函数
+async def set_clock(update: Update, context: CallbackContext) -> None:
+    chat_id = update.message.chat_id
+    args = context.args
+
+    # 检查是否已设置时区
+    if chat_id not in user_timezones:
+        await update.message.reply_text('请先设置时区，例如 /time Asia/Shanghai')
+        return
+
+    if len(args) < 2:
+        await update.message.reply_text('用法: /clock <时间> <提醒内容>')
+        return
+
+    reminder_time = args[0]
+    reminder_text = " ".join(args[1:])
+
+    try:
+        reminder_time = datetime.strptime(reminder_time, "%H:%M").time()
+        if chat_id not in user_reminders:
+            user_reminders[chat_id] = []
+        user_reminders[chat_id].append((reminder_time, reminder_text))
+        await update.message.reply_text(f'提醒设置成功，将在 {reminder_time.strftime("%H:%M")} 提醒你: {reminder_text}')
+        logger.info(f"用户 {chat_id} 设置提醒时间为 {reminder_time} 提醒内容为 {reminder_text}")
+    except ValueError:
+        await update.message.reply_text('无效的时间格式，请使用 HH:MM 格式')
+        logger.warning(f"用户 {chat_id} 尝试设置无效的时间格式 {reminder_time}")
+
+# 提醒调度程序
+async def reminder_scheduler(context: CallbackContext):
+    while True:
+        await asyncio.sleep(60)  # 每60秒检查一次提醒
+        now = datetime.now(pytz.utc)
+
+        for chat_id, reminders in list(user_reminders.items()):
+            timezone = user_timezones.get(chat_id, 'UTC')
+            current_time = now.astimezone(pytz.timezone(timezone)).time()
+
+            # 使用副本来避免修改列表时的并发问题
+            reminders_to_remove = []
+
+            for reminder_time, reminder_text in reminders:
+                if reminder_time <= current_time < (datetime.combine(datetime.today(), reminder_time) + timedelta(minutes=1)).time():
+                    logger.info(f"提醒时间到，向 chat_id {chat_id} 发送提醒内容: {reminder_text}")
+
+                    # 获取当前的人格选择
+                    current_personality = get_latest_personality(chat_id)
+                    if current_personality not in personalities:
+                        current_personality = "DefaultPersonality"
+                    try:
+                        personality = personalities[current_personality]
+                    except KeyError:
+                        await context.bot.send_message(chat_id=chat_id, text=f"找不到人格: {current_personality}")
+                        continue
+
+                    reminder_message = f"请提醒我该做 {reminder_text} 遵守以下提示词：{personality['prompt']} 发送回复给我。"
+
+                    messages = [{"role": "system", "content": personality['prompt']}, {"role": "user", "content": reminder_message}]
+                    payload = {
+                        "model": personality['model'],
+                        "messages": messages,
+                        "temperature": personality['temperature']
+                    }
+                    headers = {
+                        "Authorization": f"Bearer {API_KEY}",
+                        "HTTP-Referer": YOUR_SITE_URL,  # 可选
+                        "X-Title": YOUR_APP_NAME  # 可选
+                    }
+
+                    logger.debug(f"为 chat_id {chat_id} 向API发送负载: {json.dumps(payload, ensure_ascii=False)}")
+
+                    async with aiohttp.ClientSession() as session:
+                        try:
+                            async with session.post(personality['api_url'], headers=headers, json=payload) as response:
+                                response.raise_for_status()
+                                response_json = await response.json()
+                                logger.debug(f"chat_id {chat_id} 的API响应: {response_json}")
+
+                                reply = response_json.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+                                if "：" in reply:
+                                    reply = reply.split("：", 1)[-1].strip()
+                                
+                                # 发送回复消息
+                                sent_message = await context.bot.send_message(chat_id=chat_id, text=reply)
+
+                                # 将提醒内容和回复内容添加到聊天历史
+                                chat_histories[chat_id].append(f"Reminder: {reminder_text}")
+                                chat_histories[chat_id].append(f"Bot: {reply}")
+
+                                # 记录消息ID
+                                if chat_id not in message_ids:
+                                    message_ids[chat_id] = []
+                                message_ids[chat_id].append(sent_message.message_id)
+
+                                last_activity[chat_id] = datetime.now()  # 更新最后活动时间
+                                logger.info(f"向 chat_id {chat_id} 发送了提醒: {reply}")
+
+                                # 记录要移除的提醒
+                                reminders_to_remove.append((reminder_time, reminder_text))
+
+                        except aiohttp.ClientResponseError as http_err:
+                            logger.error(f"HTTP 错误发生: {http_err}")
+                        except aiohttp.ClientError as req_err:
+                            logger.error(f"请求错误发生: {req_err}")
+                        except json.JSONDecodeError as json_err:
+                            logger.error(f"JSON 解码错误: {json_err}")
+                        except Exception as err:
+                            logger.error(f"发生错误: {err}，消息内容: {reminder_text}，chat_id: {chat_id}")
+
+            # 从提醒列表中移除已发送的提醒
+            for reminder in reminders_to_remove:
+                user_reminders[chat_id].remove(reminder)
+            # 如果用户的提醒列表为空，移除用户的提醒记录
+            if not user_reminders[chat_id]:
+                del user_reminders[chat_id]
+
+
+
 # 问候调度程序
 async def greeting_scheduler(chat_id, context: CallbackContext):
     logger.info(f"为 chat_id: {chat_id} 启动 greeting_scheduler")
@@ -359,15 +478,15 @@ async def greeting_scheduler(chat_id, context: CallbackContext):
 
                 # 生成问候
                 examples = [
-                    "0:00am-3:59am: '向用户问好，并询问他们是否还醒着。'",
-                    "4:00am-5:59am: '请向用户说早上好，并提到你早起了。'",
-                    "6:00am-8:59am: '在早上向用户问好。'",
-                    "9:00am-10:59am: '向用户问好，并询问他们今天有什么计划。'",
-                    "11:00am-12:59pm: '询问用户是否想一起吃午饭。'",
-                    "1:00pm-4:59pm: '谈谈你的工作，并表达你对用户的思念。'",
-                    "5:00pm-7:59pm: '询问用户是否想一起吃晚饭。'",
-                    "8:00pm-9:59pm: '描述你的一天或美丽的晚景，并询问用户的一天。'",
-                    "10:00pm-11:59pm: '向用户说晚安。'",
+                    "0:00-3:59: '向用户问好，并询问他们是否还醒着。'",
+                    "4:00-5:59: '请向用户说早上好，并提到你早起了。'",
+                    "6:00-8:59: '在早上向用户问好。'",
+                    "9:00-10:59: '向用户问好，并询问他们今天有什么计划。'",
+                    "11:00-12:59: '询问用户是否已经吃过午饭。'",
+                    "13:00-16:59: '谈谈你的工作，并表达你对用户的思念。'",
+                    "17:00-19:59: '询问用户是否已经吃过晚饭。'",
+                    "20:00-21:59: '描述你的一天或美丽的晚景，并询问用户的一天。'",
+                    "22:00-23:59: '向用户说晚安。'",
                     "分享日常生活: '分享你的日常生活或工作。'"
                 ]
                 greeting_message += "\n按照示例的风格进行回复，不要重复示例的内容，用你自己的方式表达：\n" + "\n".join(examples)
@@ -434,7 +553,8 @@ def main() -> None:
         BotCommand("clear", "清除当前聊天记录"),
         BotCommand("time", "设置时区"),
         BotCommand("list", "列出和管理记忆"),
-        BotCommand("retry", "重试最后一条消息")
+        BotCommand("retry", "重试最后一条消息"),
+        BotCommand("clock", "设置提醒")
     ]
     application.bot.set_my_commands(commands)
 
@@ -444,7 +564,12 @@ def main() -> None:
     application.add_handler(CommandHandler("time", set_time))
     application.add_handler(CommandHandler("list", list_memories))
     application.add_handler(CommandHandler("retry", retry_last_response))
+    application.add_handler(CommandHandler("clock", set_clock))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    # 启动提醒调度任务
+    job_queue = application.job_queue
+    job_queue.run_repeating(reminder_scheduler, interval=60, first=10)
 
     application.run_polling()
 
