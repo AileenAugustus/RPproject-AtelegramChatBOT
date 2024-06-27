@@ -87,6 +87,7 @@
    ```python
    API_KEY = 'your_openai_api_key'
    TELEGRAM_BOT_TOKEN = 'your_telegram_bot_token'
+   ALLOWED_USER_IDS = []  # 替换为允许的用户ID
    YOUR_SITE_URL = 'your_site_url'#可选
    YOUR_APP_NAME = 'your_app_name'#可选
    ```
