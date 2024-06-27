@@ -16,6 +16,7 @@
 - **时区设置**：设置您的时区以接收及时的问候和消息。
 - **重试机制**：如果需要，可以重试最后的回应。
 - **主动问候**：根据用户的活动和时区，机器人会生成发送问候消息。
+- **定时提醒**：用户可以设定提醒事项和时间，机器人会在对应时间提醒用户。
 
 ## 命令
 
@@ -60,6 +61,13 @@
 ```
 重试最后的机器人回应。
 
+### 提醒事项
+```
+/clock <time> <text>
+```
+设定提醒事项和提醒时间。
+
+
 ## 安装
 
 1. **克隆仓库**
@@ -84,17 +92,27 @@
    ```
    在根目录找到 `personalities.py` 文件，内容如下：
    ```python
-       # 在这里添加人格
+   personalities = {
+    "DefaultPersonality": {
+        "api_url": "https://openrouter.ai/api/v1/chat/completions",
+        "prompt": "你是chatgpt。",
+        "temperature": 0.6,
+        "model": "openai/gpt-4o"
+    },
+   personalities = {
+    "自定义人格的名字": {
+        "api_url": "https://openrouter.ai/api/v1/chat/completions",
+        "prompt": "自定义人格提示词",
+        "temperature": 1,
+        "model": "openai/gpt-4o"
+    },
+
    ```
 
 4. **运行机器人**
    ```bash
    python bot.py
    ```
-
-## 日志记录
-
-启用日志记录以跟踪机器人的活动和错误。日志以不同级别（INFO、DEBUG、WARNING、ERROR）打印到控制台。
 
 ## 贡献
 
