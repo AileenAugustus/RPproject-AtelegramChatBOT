@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import pytz
 from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, JobQueue
-from config import API_KEY, TELEGRAM_BOT_TOKEN, YOUR_SITE_URL, YOUR_APP_NAME
+from config import API_KEY, TELEGRAM_BOT_TOKEN, YOUR_SITE_URL, YOUR_APP_NAME, ALLOWED_USER_IDS
 from personalities import personalities
 
 # 启用日志记录
@@ -35,7 +35,18 @@ user_reminders = {}
 def get_latest_personality(chat_id):
     return user_personalities.get(chat_id, "DefaultPersonality")
 
+# 装饰器函数来检查用户ID
+def allowed_users_only(func):
+    async def wrapper(update: Update, context: CallbackContext):
+        user_id = update.message.from_user.id
+        if user_id in ALLOWED_USER_IDS:
+            return await func(update, context)
+        else:
+            await update.message.reply_text("你没有权限使用此机器人。")
+    return wrapper
+
 # /start 命令的处理函数
+@allowed_users_only
 async def start(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     await update.message.reply_text(
@@ -63,6 +74,7 @@ async def start(update: Update, context: CallbackContext) -> None:
     logger.info(f"为 chat_id: {chat_id} 创建了 greeting_scheduler 任务")
 
 # /use 命令的处理函数
+@allowed_users_only
 async def use_personality(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     args = context.args
@@ -80,6 +92,7 @@ async def use_personality(update: Update, context: CallbackContext) -> None:
         logger.warning(f"用户 {chat_id} 尝试切换到未知人格 {personality_choice}")
 
 # /time 命令的处理函数
+@allowed_users_only
 async def set_time(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     args = context.args
@@ -99,6 +112,7 @@ async def set_time(update: Update, context: CallbackContext) -> None:
         logger.warning(f"用户 {chat_id} 尝试设置未知时区 {timezone}")
 
 # /clear 命令的处理函数
+@allowed_users_only
 async def clear_history(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     chat_histories[chat_id] = []
@@ -106,6 +120,7 @@ async def clear_history(update: Update, context: CallbackContext) -> None:
     logger.info(f"清除了 chat_id: {chat_id} 的聊天记录")
 
 # /list 命令的处理函数
+@allowed_users_only
 async def list_memories(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     args = context.args
@@ -142,6 +157,7 @@ async def list_memories(update: Update, context: CallbackContext) -> None:
             await update.message.reply_text('用法: /list <记忆索引> <新记忆文本>')
 
 # /retry 命令的处理函数
+@allowed_users_only
 async def retry_last_response(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
 
@@ -190,6 +206,7 @@ async def retry_last_response(update: Update, context: CallbackContext) -> None:
         await context.bot.send_message(chat_id=chat_id, text="处理消息时发生主要错误，请稍后重试。")
 
 # 消息处理函数
+@allowed_users_only
 async def handle_message(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     message = update.message.text
@@ -339,6 +356,7 @@ async def process_message(chat_id, message, telegram_message, context):
         logger.error(f"发送消息失败: {err}")
 
 # /clock 命令的处理函数
+@allowed_users_only
 async def set_clock(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     args = context.args
@@ -454,13 +472,11 @@ async def reminder_scheduler(context: CallbackContext):
             if not user_reminders[chat_id]:
                 del user_reminders[chat_id]
 
-
-
 # 问候调度程序
 async def greeting_scheduler(chat_id, context: CallbackContext):
     logger.info(f"为 chat_id: {chat_id} 启动 greeting_scheduler")
     while True:
-        await asyncio.sleep(3600)  # 每3600秒检查一次新消息
+        await asyncio.sleep(600)  # 每3600秒检查一次新消息
         logger.info(f"检查 chat_id: {chat_id} 的最后活动时间")
         if chat_id in last_activity:
             delta = datetime.now() - last_activity[chat_id]
