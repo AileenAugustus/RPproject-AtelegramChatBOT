@@ -28,8 +28,11 @@ user_memories = {}
 scheduler_tasks = {}
 # 存储每个用户的消息ID
 message_ids = {}
-# 存储每个用户的提醒信息
+# 存储每个用户的提醒
 user_reminders = {}
+# 存储每个用户的循环提醒
+user_daily_reminders = {}
+
 
 # 获取最新的人格选择
 def get_latest_personality(chat_id):
@@ -58,7 +61,6 @@ async def start(update: Update, context: CallbackContext) -> None:
         '发送消息开始聊天吧！\n'
         '你也可以设置你的时区，例如 /time Asia/Shanghai\n'
         '使用/retry重新发送最后一条消息\n'
-        '使用/clock <时间> <提醒内容> - 设置提醒，格式为 "HH:MM 提醒内容"'
     )
     last_activity[chat_id] = datetime.now()
 
@@ -204,6 +206,108 @@ async def retry_last_response(update: Update, context: CallbackContext) -> None:
     except Exception as main_err:
         logger.error(f"处理消息时发生主要错误: {main_err}")
         await context.bot.send_message(chat_id=chat_id, text="处理消息时发生主要错误，请稍后重试。")
+
+# /clock 命令的处理函数
+@allowed_users_only
+async def set_clock(update: Update, context: CallbackContext) -> None:
+    chat_id = update.message.chat_id
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text('用法: /clock <时间(HH:MM)> <事件>')
+        return
+
+    time_str = args[0]
+    event = " ".join(args[1:])
+
+    try:
+        reminder_time = datetime.strptime(time_str, "%H:%M").time()
+        if chat_id not in user_reminders:
+            user_reminders[chat_id] = []
+        user_reminders[chat_id].append((reminder_time, event))
+        await update.message.reply_text(f'提醒已设置在 {time_str} 时提醒: {event}')
+        logger.info(f"用户 {chat_id} 设置提醒在 {time_str} 时: {event}")
+    except ValueError:
+        await update.message.reply_text('无效的时间格式。请使用 HH:MM 格式。')
+        logger.warning(f"用户 {chat_id} 尝试设置无效时间 {time_str}")
+
+# /clocklist 命令的处理函数
+@allowed_users_only
+async def list_clocks(update: Update, context: CallbackContext) -> None:
+    chat_id = update.message.chat_id
+    reminders = user_reminders.get(chat_id, [])
+    if not reminders:
+        await update.message.reply_text('没有设置任何提醒。')
+    else:
+        reminders_text = "\n".join([f"{i + 1}. {time.strftime('%H:%M')} - {event}" for i, (time, event) in enumerate(reminders)])
+        await update.message.reply_text(f"提醒列表：\n{reminders_text}")
+
+    daily_reminders = user_daily_reminders.get(chat_id, [])
+    if daily_reminders:
+        daily_reminders_text = "\n".join([f"{i + 1}. {time.strftime('%H:%M')} - {event}" for i, (time, event) in enumerate(daily_reminders)])
+        await update.message.reply_text(f"每日提醒列表：\n{daily_reminders_text}")
+
+# /clockeveryday 命令的处理函数
+@allowed_users_only
+async def set_daily_clock(update: Update, context: CallbackContext) -> None:
+    chat_id = update.message.chat_id
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text('用法: /clockeveryday <时间(HH:MM)> <事件>')
+        return
+
+    time_str = args[0]
+    event = " ".join(args[1:])
+
+    try:
+        reminder_time = datetime.strptime(time_str, "%H:%M").time()
+        if chat_id not in user_daily_reminders:
+            user_daily_reminders[chat_id] = []
+        user_daily_reminders[chat_id].append((reminder_time, event))
+        await update.message.reply_text(f'每日提醒已设置在 {time_str} 时提醒: {event}')
+        logger.info(f"用户 {chat_id} 设置每日提醒在 {time_str} 时: {event}")
+    except ValueError:
+        await update.message.reply_text('无效的时间格式。请使用 HH:MM 格式。')
+        logger.warning(f"用户 {chat_id} 尝试设置无效时间 {time_str}")
+
+# /clockclear 命令的处理函数
+@allowed_users_only
+async def clear_clock(update: Update, context: CallbackContext) -> None:
+    chat_id = update.message.chat_id
+    args = context.args
+    if len(args) != 1:
+        await update.message.reply_text('用法: /clockclear <提醒索引>')
+        return
+
+    try:
+        index = int(args[0]) - 1
+        if chat_id in user_reminders and 0 <= index < len(user_reminders[chat_id]):
+            del user_reminders[chat_id][index]
+            await update.message.reply_text('提醒已删除。')
+        else:
+            await update.message.reply_text('无效的提醒索引或该索引对应的提醒不是一次性提醒。')
+    except (ValueError, IndexError):
+        await update.message.reply_text('无效的提醒索引。')
+
+        
+# /clockclearevery 命令的处理函数
+@allowed_users_only
+async def clear_daily_clock(update: Update, context: CallbackContext) -> None:
+    chat_id = update.message.chat_id
+    args = context.args
+    if len(args) != 1:
+        await update.message.reply_text('用法: /clockclearevery <提醒索引>')
+        return
+
+    try:
+        index = int(args[0]) - 1
+        if chat_id in user_daily_reminders and 0 <= index < len(user_daily_reminders[chat_id]):
+            del user_daily_reminders[chat_id][index]
+            await update.message.reply_text('每日提醒已删除。')
+        else:
+            await update.message.reply_text('无效的提醒索引。')
+    except (ValueError, IndexError):
+        await update.message.reply_text('无效的提醒索引。')
+
 
 # 消息处理函数
 @allowed_users_only
@@ -355,34 +459,6 @@ async def process_message(chat_id, message, telegram_message, context):
     except Exception as err:
         logger.error(f"发送消息失败: {err}")
 
-# /clock 命令的处理函数
-@allowed_users_only
-async def set_clock(update: Update, context: CallbackContext) -> None:
-    chat_id = update.message.chat_id
-    args = context.args
-
-    # 检查是否已设置时区
-    if chat_id not in user_timezones:
-        await update.message.reply_text('请先设置时区，例如 /time Asia/Shanghai')
-        return
-
-    if len(args) < 2:
-        await update.message.reply_text('用法: /clock <时间> <提醒内容>')
-        return
-
-    reminder_time = args[0]
-    reminder_text = " ".join(args[1:])
-
-    try:
-        reminder_time = datetime.strptime(reminder_time, "%H:%M").time()
-        if chat_id not in user_reminders:
-            user_reminders[chat_id] = []
-        user_reminders[chat_id].append((reminder_time, reminder_text))
-        await update.message.reply_text(f'提醒设置成功，将在 {reminder_time.strftime("%H:%M")} 提醒你: {reminder_text}')
-        logger.info(f"用户 {chat_id} 设置提醒时间为 {reminder_time} 提醒内容为 {reminder_text}")
-    except ValueError:
-        await update.message.reply_text('无效的时间格式，请使用 HH:MM 格式')
-        logger.warning(f"用户 {chat_id} 尝试设置无效的时间格式 {reminder_time}")
 
 # 提醒调度程序
 async def reminder_scheduler(context: CallbackContext):
@@ -394,83 +470,85 @@ async def reminder_scheduler(context: CallbackContext):
             timezone = user_timezones.get(chat_id, 'UTC')
             current_time = now.astimezone(pytz.timezone(timezone)).time()
 
-            # 使用副本来避免修改列表时的并发问题
             reminders_to_remove = []
+            for reminder_time, reminder_text in reminders:
+                if reminder_time <= current_time < (datetime.combine(datetime.today(), reminder_time) + timedelta(minutes=1)).time():
+                    await send_reminder(chat_id, reminder_text, context)
+                    reminders_to_remove.append((reminder_time, reminder_text))
+
+            for reminder in reminders_to_remove:
+                user_reminders[chat_id].remove(reminder)
+
+        for chat_id, reminders in list(user_daily_reminders.items()):
+            timezone = user_timezones.get(chat_id, 'UTC')
+            current_time = now.astimezone(pytz.timezone(timezone)).time()
 
             for reminder_time, reminder_text in reminders:
                 if reminder_time <= current_time < (datetime.combine(datetime.today(), reminder_time) + timedelta(minutes=1)).time():
-                    logger.info(f"提醒时间到，向 chat_id {chat_id} 发送提醒内容: {reminder_text}")
+                    await send_reminder(chat_id, reminder_text, context)
 
-                    # 获取当前的人格选择
-                    current_personality = get_latest_personality(chat_id)
-                    if current_personality not in personalities:
-                        current_personality = "DefaultPersonality"
-                    try:
-                        personality = personalities[current_personality]
-                    except KeyError:
-                        await context.bot.send_message(chat_id=chat_id, text=f"找不到人格: {current_personality}")
-                        continue
+# 发送提醒的函数
+async def send_reminder(chat_id, reminder_text, context: CallbackContext):
+    logger.info(f"提醒时间到，向 chat_id {chat_id} 发送提醒内容: {reminder_text}")
 
-                    reminder_message = f"请提醒我该做 {reminder_text} 遵守以下提示词：{personality['prompt']} 发送回复给我。"
+    # 获取当前的人格选择
+    current_personality = get_latest_personality(chat_id)
+    if current_personality not in personalities:
+        current_personality = "DefaultPersonality"
+    try:
+        personality = personalities[current_personality]
+    except KeyError:
+        await context.bot.send_message(chat_id=chat_id, text=f"找不到人格: {current_personality}")
+        return
 
-                    messages = [{"role": "system", "content": personality['prompt']}, {"role": "user", "content": reminder_message}]
-                    payload = {
-                        "model": personality['model'],
-                        "messages": messages,
-                        "temperature": personality['temperature']
-                    }
-                    headers = {
-                        "Authorization": f"Bearer {API_KEY}",
-                        "HTTP-Referer": YOUR_SITE_URL,  # 可选
-                        "X-Title": YOUR_APP_NAME  # 可选
-                    }
+    # 将人格所有参数转换为字符串
+    personality_details = "\n".join([f"{key}: {value}" for key, value in personality.items()])
 
-                    logger.debug(f"为 chat_id {chat_id} 向API发送负载: {json.dumps(payload, ensure_ascii=False)}")
+    reminder_message = f"请提醒我应该做以下事情： {reminder_text} 遵守以下提示词：{personality['prompt']} 发送回复给我。"
 
-                    async with aiohttp.ClientSession() as session:
-                        try:
-                            async with session.post(personality['api_url'], headers=headers, json=payload) as response:
-                                response.raise_for_status()
-                                response_json = await response.json()
-                                logger.debug(f"chat_id {chat_id} 的API响应: {response_json}")
+    messages = [{"role": "system", "content": personality['prompt']}, {"role": "user", "content": reminder_message}]
+    payload = {
+        "model": personality['model'],
+        "messages": messages,
+        "temperature": personality['temperature']
+    }
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "HTTP-Referer": YOUR_SITE_URL,  # 可选
+        "X-Title": YOUR_APP_NAME  # 可选
+    }
 
-                                reply = response_json.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
-                                if "：" in reply:
-                                    reply = reply.split("：", 1)[-1].strip()
-                                
-                                # 发送回复消息
-                                sent_message = await context.bot.send_message(chat_id=chat_id, text=reply)
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.post(personality['api_url'], headers=headers, json=payload) as response:
+                response.raise_for_status()
+                response_json = await response.json()
+                reply = response_json.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+                if "：" in reply:
+                    reply = reply.split("：", 1)[-1].strip()
+                sent_message = await context.bot.send_message(chat_id=chat_id, text=reply)
+                # 将提醒内容和回复内容添加到聊天历史
+                if chat_id not in chat_histories:
+                    chat_histories[chat_id] = []
+                chat_histories[chat_id].append(f"Reminder: {reminder_text}")
+                chat_histories[chat_id].append(f"Bot: {reply}")
 
-                                # 将提醒内容和回复内容添加到聊天历史
-                                chat_histories[chat_id].append(f"Reminder: {reminder_text}")
-                                chat_histories[chat_id].append(f"Bot: {reply}")
+                # 记录消息ID
+                if chat_id not in message_ids:
+                    message_ids[chat_id] = []
+                message_ids[chat_id].append(sent_message.message_id)
 
-                                # 记录消息ID
-                                if chat_id not in message_ids:
-                                    message_ids[chat_id] = []
-                                message_ids[chat_id].append(sent_message.message_id)
+                last_activity[chat_id] = datetime.now()  # 更新最后活动时间
+                logger.info(f"向 chat_id {chat_id} 发送了提醒: {reply}")
+        except aiohttp.ClientResponseError as http_err:
+            logger.error(f"HTTP 错误发生: {http_err}")
+        except aiohttp.ClientError as req_err:
+            logger.error(f"请求错误发生: {req_err}")
+        except json.JSONDecodeError as json_err:
+            logger.error(f"JSON 解码错误: {json_err}")
+        except Exception as err:
+            logger.error(f"发生错误: {err}，消息内容: {reminder_text}，chat_id: {chat_id}")
 
-                                last_activity[chat_id] = datetime.now()  # 更新最后活动时间
-                                logger.info(f"向 chat_id {chat_id} 发送了提醒: {reply}")
-
-                                # 记录要移除的提醒
-                                reminders_to_remove.append((reminder_time, reminder_text))
-
-                        except aiohttp.ClientResponseError as http_err:
-                            logger.error(f"HTTP 错误发生: {http_err}")
-                        except aiohttp.ClientError as req_err:
-                            logger.error(f"请求错误发生: {req_err}")
-                        except json.JSONDecodeError as json_err:
-                            logger.error(f"JSON 解码错误: {json_err}")
-                        except Exception as err:
-                            logger.error(f"发生错误: {err}，消息内容: {reminder_text}，chat_id: {chat_id}")
-
-            # 从提醒列表中移除已发送的提醒
-            for reminder in reminders_to_remove:
-                user_reminders[chat_id].remove(reminder)
-            # 如果用户的提醒列表为空，移除用户的提醒记录
-            if not user_reminders[chat_id]:
-                del user_reminders[chat_id]
 
 # 问候调度程序
 async def greeting_scheduler(chat_id, context: CallbackContext):
@@ -570,7 +648,11 @@ def main() -> None:
         BotCommand("time", "设置时区"),
         BotCommand("list", "列出和管理记忆"),
         BotCommand("retry", "重试最后一条消息"),
-        BotCommand("clock", "设置提醒")
+        BotCommand("clock", "设置提醒"),
+        BotCommand("clocklist", "查看提醒列表"),
+        BotCommand("clockeveryday", "设置每日提醒"),
+        BotCommand("clockclear", "取消提醒"),
+        BotCommand("clockclearevery", "取消每日提醒")
     ]
     application.bot.set_my_commands(commands)
 
@@ -581,6 +663,10 @@ def main() -> None:
     application.add_handler(CommandHandler("list", list_memories))
     application.add_handler(CommandHandler("retry", retry_last_response))
     application.add_handler(CommandHandler("clock", set_clock))
+    application.add_handler(CommandHandler("clocklist", list_clocks))
+    application.add_handler(CommandHandler("clockeveryday", set_daily_clock))
+    application.add_handler(CommandHandler("clockclear", clear_clock))
+    application.add_handler(CommandHandler("clockclearevery", clear_daily_clock))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # 启动提醒调度任务
